@@ -16,7 +16,7 @@ func TestDistricts(t *testing.T) {
 }
 
 func TestDistrictName(t *testing.T) {
-	if got := districtName("11380"); got != "은평구" {
+	if got := districtName("11110"); got != "종로구" {
 		t.Fatalf("got %q", got)
 	}
 	if got := districtName("41135"); got != "41135" {

@@ -101,9 +101,9 @@ func TestParseRejectsUnknownBodies(t *testing.T) {
 
 // The full response saved from the real API. Kept out of git; skipped when absent.
 func TestParseSavedResponse(t *testing.T) {
-	body, err := os.ReadFile("testdata/11380_202304.xml")
+	body, err := os.ReadFile("testdata/sample.xml")
 	if errors.Is(err, os.ErrNotExist) {
-		t.Skip("testdata/11380_202304.xml not present")
+		t.Skip("testdata/sample.xml not present")
 	}
 	if err != nil {
 		t.Fatal(err)

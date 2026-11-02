@@ -8,7 +8,7 @@ import (
 )
 
 type Trade struct {
-	AptSeq       string  `json:"aptSeq"` // complex id, e.g. "11380-8922"
+	AptSeq       string  `json:"aptSeq"` // complex id, e.g. "11110-0001"
 	AptNm        string  `json:"aptNm"`
 	SggCd        string  `json:"sggCd"` // 5-digit district code
 	UmdNm        string  `json:"umdNm"`
