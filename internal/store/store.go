@@ -41,6 +41,13 @@ var migrations = []string{
 	)`,
 	`CREATE INDEX trades_by_month ON trades (sgg_cd, ym)`,
 	`CREATE INDEX trades_by_complex ON trades (apt_seq, date)`,
+	`CREATE TABLE watchlist (
+		apt_seq  TEXT PRIMARY KEY,
+		apt_nm   TEXT NOT NULL,
+		sgg_cd   TEXT NOT NULL,
+		umd_nm   TEXT NOT NULL,
+		added_at TEXT NOT NULL
+	)`,
 }
 
 type Store struct {

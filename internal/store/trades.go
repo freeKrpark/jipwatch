@@ -123,13 +123,18 @@ type querier interface {
 }
 
 func (s *Store) load(ctx context.Context, q querier, sgg, ym string) ([]saved, error) {
-	rows, err := q.QueryContext(ctx, `SELECT
-		apt_seq, apt_nm, umd_nm, jibun, area, floor, price, date,
-		direct, canceled, canceled_on, registered_on, build_year, first_seen
-		FROM trades WHERE sgg_cd = ? AND ym = ? ORDER BY date, rowid`, sgg, ym)
+	rows, err := q.QueryContext(ctx,
+		"SELECT "+tradeColumns+" FROM trades WHERE sgg_cd = ? AND ym = ? ORDER BY date, rowid", sgg, ym)
 	if err != nil {
 		return nil, err
 	}
+	return scanSaved(rows, sgg)
+}
+
+const tradeColumns = `apt_seq, apt_nm, umd_nm, jibun, area, floor, price, date,
+	direct, canceled, canceled_on, registered_on, build_year, first_seen`
+
+func scanSaved(rows *sql.Rows, sgg string) ([]saved, error) {
 	defer rows.Close()
 	var out []saved
 	for rows.Next() {

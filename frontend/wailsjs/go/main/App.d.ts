@@ -3,14 +3,26 @@
 import {molit} from '../models';
 import {main} from '../models';
 
+export function ComplexHistory(arg1:string,arg2:string):Promise<Array<molit.Trade>>;
+
 export function ComplexTrades(arg1:string,arg2:string,arg3:string):Promise<Array<molit.Trade>>;
 
 export function DefaultMonth():Promise<string>;
 
 export function HasAPIKey():Promise<boolean>;
 
+export function IsWatched(arg1:string):Promise<boolean>;
+
 export function Month(arg1:string,arg2:string):Promise<main.MonthSummary>;
 
 export function RefreshMonth(arg1:string,arg2:string):Promise<main.MonthSummary>;
 
 export function SaveAPIKey(arg1:string):Promise<void>;
+
+export function SyncWatched():Promise<main.SyncResult>;
+
+export function Unwatch(arg1:string):Promise<void>;
+
+export function Watch(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+
+export function Watchlist():Promise<Array<main.WatchItem>>;

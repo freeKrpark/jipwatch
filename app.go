@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/freekrpark/jipwatch/internal/molit"
 	"github.com/freekrpark/jipwatch/internal/store"
@@ -19,20 +22,25 @@ var kst = time.FixedZone("KST", 9*60*60)
 
 // App holds the methods the frontend can call.
 type App struct {
-	ctx   context.Context
-	store *store.Store
-	mu    sync.Mutex // one fetch at a time
+	ctx     context.Context
+	store   *store.Store
+	emit    func(event string, data any)
+	mu      sync.Mutex  // one API fetch at a time
+	syncing atomic.Bool // one sync at a time
 }
 
 func NewApp(st *store.Store) *App {
-	return &App{store: st}
+	return &App{store: st, emit: func(string, any) {}}
 }
 
 // startup is called when the app starts. The context is saved
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.emit = func(event string, data any) { wailsruntime.EventsEmit(ctx, event, data) }
 }
+
+// --- API key ----------------------------------------------------------------
 
 // HasAPIKey reports whether a key has been saved.
 func (a *App) HasAPIKey() (bool, error) {
@@ -58,6 +66,33 @@ func (a *App) SaveAPIKey(key string) error {
 	}
 	return a.store.SetSetting(a.ctx, settingAPIKey, key)
 }
+
+func (a *App) client() (*molit.Client, error) {
+	key, err := a.store.Setting(a.ctx, settingAPIKey)
+	if err != nil {
+		return nil, err
+	}
+	if key == "" {
+		return nil, errors.New("API 키를 먼저 설정해 주세요")
+	}
+	return molit.NewClient(key), nil
+}
+
+// fetch gets one district-month from the API and saves it in place of the
+// saved copy.
+func (a *App) fetch(c *molit.Client, sgg, ym string) (store.Change, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	ctx, cancel := context.WithTimeout(a.ctx, time.Minute)
+	defer cancel()
+	fresh, err := c.Month(ctx, sgg, ym)
+	if err != nil {
+		return store.Change{}, err
+	}
+	return a.store.ReplaceMonth(a.ctx, sgg, ym, fresh, time.Now().In(kst))
+}
+
+// --- one month --------------------------------------------------------------
 
 // DefaultMonth is last month in Korea, "200601" layout: the latest month
 // with a fair share of its sales reported.
@@ -105,32 +140,122 @@ func (a *App) trades(sgg, month string, refresh bool) ([]molit.Trade, string, *s
 	if err := checkQuery(sgg, month); err != nil {
 		return nil, "", nil, err
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	if !refresh {
 		saved, fetchedAt, err := a.store.Month(a.ctx, sgg, month)
 		if err != nil || fetchedAt != "" {
 			return saved, fetchedAt, nil, err
 		}
 	}
-
-	key, err := a.store.Setting(a.ctx, settingAPIKey)
+	c, err := a.client()
 	if err != nil {
 		return nil, "", nil, err
 	}
-	if key == "" {
-		return nil, "", nil, errors.New("API 키를 먼저 설정해 주세요")
-	}
-	ctx, cancel := context.WithTimeout(a.ctx, time.Minute)
-	defer cancel()
-	fresh, err := molit.NewClient(key).Month(ctx, sgg, month)
-	if err != nil {
-		return nil, "", nil, err
-	}
-	change, err := a.store.ReplaceMonth(a.ctx, sgg, month, fresh, time.Now().In(kst))
+	change, err := a.fetch(c, sgg, month)
 	if err != nil {
 		return nil, "", nil, err
 	}
 	saved, fetchedAt, err := a.store.Month(a.ctx, sgg, month)
 	return saved, fetchedAt, &change, err
+}
+
+// --- watchlist --------------------------------------------------------------
+
+// Watch adds a complex to the watchlist. Call SyncWatched afterwards to
+// fetch its district's history.
+func (a *App) Watch(aptSeq, aptNm, sgg, umdNm string) error {
+	return a.store.Watch(a.ctx, store.Watched{AptSeq: aptSeq, AptNm: aptNm, SggCd: sgg, UmdNm: umdNm}, time.Now().In(kst))
+}
+
+// Unwatch removes a complex from the watchlist; its saved sales stay.
+func (a *App) Unwatch(aptSeq string) error {
+	return a.store.Unwatch(a.ctx, aptSeq)
+}
+
+// IsWatched reports whether a complex is on the watchlist.
+func (a *App) IsWatched(aptSeq string) (bool, error) {
+	return a.store.IsWatched(a.ctx, aptSeq)
+}
+
+// Watchlist lists the watched complexes with their saved history summarized.
+func (a *App) Watchlist() ([]WatchItem, error) {
+	list, err := a.store.Watchlist(a.ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]WatchItem, 0, len(list))
+	for _, w := range list {
+		history, err := a.store.ComplexHistory(a.ctx, w.SggCd, w.AptSeq)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, watchItem(w.AptSeq, w.AptNm, w.SggCd, w.UmdNm, history))
+	}
+	return items, nil
+}
+
+// ComplexHistory returns every saved sale of one complex by contract date.
+func (a *App) ComplexHistory(sgg, aptSeq string) ([]molit.Trade, error) {
+	trades, err := a.store.ComplexHistory(a.ctx, sgg, aptSeq)
+	if trades == nil && err == nil {
+		trades = []molit.Trade{}
+	}
+	return trades, err
+}
+
+// SyncWatched fetches, for every district with a watched complex, each month
+// since historyFrom that was never fetched and the last few months again.
+// It sends a "sync" event with SyncProgress before each month. It stops at
+// the first failure; the months fetched so far stay saved, and the next sync
+// picks up the rest.
+func (a *App) SyncWatched() (SyncResult, error) {
+	if !a.syncing.CompareAndSwap(false, true) {
+		return SyncResult{}, errors.New("이미 받는 중이에요")
+	}
+	defer a.syncing.Store(false)
+
+	list, err := a.store.Watchlist(a.ctx)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	type job struct{ sgg, ym string }
+	var jobs []job
+	seen := map[string]bool{}
+	now := time.Now().In(kst)
+	for _, w := range list {
+		if seen[w.SggCd] {
+			continue
+		}
+		seen[w.SggCd] = true
+		fetched, err := a.store.Fetched(a.ctx, w.SggCd)
+		if err != nil {
+			return SyncResult{}, err
+		}
+		for _, ym := range syncPlan(fetched, now) {
+			jobs = append(jobs, job{w.SggCd, ym})
+		}
+	}
+	if len(jobs) == 0 {
+		return SyncResult{}, nil
+	}
+	c, err := a.client()
+	if err != nil {
+		return SyncResult{}, err
+	}
+
+	var r SyncResult
+	for i, j := range jobs {
+		a.emit("sync", SyncProgress{Done: i, Total: len(jobs), Label: j.sgg + " " + ymLabel(j.ym)})
+		ch, err := a.fetch(c, j.sgg, j.ym)
+		if err != nil {
+			r.Error = fmt.Sprintf("%s %s에서 멈췄어요: %v", j.sgg, ymLabel(j.ym), err)
+			break
+		}
+		r.Months++
+		if !ch.First {
+			r.Added += len(ch.Added)
+			r.NewlyCanceled += len(ch.Canceled)
+		}
+	}
+	a.emit("sync", SyncProgress{Done: r.Months, Total: len(jobs)})
+	return r, nil
 }

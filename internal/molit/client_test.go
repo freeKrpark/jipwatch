@@ -116,3 +116,41 @@ func TestPingBadKey(t *testing.T) {
 		t.Fatalf("want APIError 30, got %v", err)
 	}
 }
+
+func TestNormalizeKey(t *testing.T) {
+	cases := map[string]string{
+		"key+/=":       "key+/=", // Decoding key: unchanged
+		"key%2B%2F%3D": "key+/=", // Encoding key: decoded once
+		"  key+/=\n":   "key+/=", // pasted with whitespace
+		"bad%zzkey":    "bad%zzkey",
+	}
+	for in, want := range cases {
+		if got := NormalizeKey(in); got != want {
+			t.Errorf("NormalizeKey(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Either key shown on data.go.kr reaches the API as the same value.
+func TestEncodingKeyIsNotEncodedTwice(t *testing.T) {
+	srv, _ := fakeAPI(t, 1, 10) // fakeAPI checks serviceKey == "key+/="
+	c := NewClient("key%2B%2F%3D")
+	c.Endpoint = srv.URL
+	if _, err := c.Month(context.Background(), "11110", "202304"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The gateway answers an unknown key with HTTP 403 and its own XML.
+func TestGatewayErrorWithHTTPStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(keyError))
+	}))
+	defer srv.Close()
+	err := testClient(srv.URL, 10).Ping(context.Background())
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != "30" {
+		t.Fatalf("want APIError 30, got %v", err)
+	}
+}

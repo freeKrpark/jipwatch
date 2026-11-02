@@ -9,8 +9,13 @@
 <body>
 <header>
     <strong>jipwatch</strong>
-    <button id="settings" class="link" hidden>API 키 변경</button>
+    <nav id="nav" hidden>
+        <button class="tab" data-page="home">관심 단지</button>
+        <button class="tab" data-page="search">거래 찾기</button>
+        <button class="link" data-page="setup">API 키 변경</button>
+    </nav>
 </header>
+<div id="sync" hidden></div>
 <main id="app"></main>
 <script src="./src/main.js" type="module"></script>
 </body>
