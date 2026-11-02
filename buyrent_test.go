@@ -36,10 +36,7 @@ func TestBrokerFee(t *testing.T) {
 // A worked example, checked by hand: a 12억 home against a 6억 전세 with
 // 8.5억 cash, a 4.5% loan, 3% on cash, 0.5% upkeep, kept 10 years.
 func TestBuyRentWorkedExample(t *testing.T) {
-	r := buyRent(BuyRentInput{
-		Price: 120000, Jeonse: 60000, Cash: 85000, Area: 84,
-		LoanRate: 4.5, OppRate: 3, MaintRate: 0.5, Years: 10,
-	})
+	r := buyRent(BuyRentInput{Price: 100000, Jeonse: 60000, Cash: 40000, LoanRate: 5, JeonseRate: 4, OppRate: 3, Years: 10})
 	// Need 12억 + 4,680만 (취득세 3,960 + 수수료 720); 8.5억 cash leaves a 3억 9,680만 loan.
 	if r.AcquireCost != 4680 || r.Loan != 39680 {
 		t.Fatalf("acquire %d, loan %d", r.AcquireCost, r.Loan)

@@ -226,6 +226,7 @@ export namespace main {
 	    cash: number;
 	    area: number;
 	    loanRate: number;
+	    jeonseRate: number;
 	    oppRate: number;
 	    maintRate: number;
 	    years: number;
@@ -242,6 +243,7 @@ export namespace main {
 	        this.cash = source["cash"];
 	        this.area = source["area"];
 	        this.loanRate = source["loanRate"];
+	        this.jeonseRate = source["jeonseRate"];
 	        this.oppRate = source["oppRate"];
 	        this.maintRate = source["maintRate"];
 	        this.years = source["years"];

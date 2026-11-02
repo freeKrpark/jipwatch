@@ -11,6 +11,7 @@ type BuyRentInput struct {
 	Cash        int     `json:"cash"`
 	Area        int     `json:"area"`
 	LoanRate    float64 `json:"loanRate"`
+	JeonseRate  float64 `json:"jeonseRate"`
 	OppRate     float64 `json:"oppRate"`
 	MaintRate   float64 `json:"maintRate"`
 	Years       int     `json:"years"`
@@ -131,7 +132,7 @@ func buyRent(in BuyRentInput) BuyRentResult {
 		own := min(in.Cash, in.Jeonse)
 		return []CostLine{
 			{"보증금에 묶인 현금의 기회비용", yearly(own, opp)},
-			{"전세대출 이자", yearly(in.Jeonse-own, in.LoanRate)},
+			{"전세대출 이자", yearly(in.Jeonse-own, in.JeonseRate)},
 			{"중개수수료 (2년마다)", brokerFee(in.Jeonse, false) / 2},
 		}
 	}

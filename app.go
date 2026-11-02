@@ -303,11 +303,14 @@ func (a *App) BuyRentStart(sgg, aptSeq string, area int) (BuyRentStart, error) {
 	}
 	an := analyse(history, area, time.Now().In(kst))
 	in := BuyRentInput{Price: an.Summary.RecentMedian, Area: an.Area,
-		LoanRate: 4.5, OppRate: 3, MaintRate: 0.5, Years: 10}
+		LoanRate: 4.5, JeonseRate: 4.1, OppRate: 3, MaintRate: 0.5, Years: 10}
 	if last, err := a.store.Setting(a.ctx, buyRentLast); err == nil && last != "" {
 		var l BuyRentInput
 		if json.Unmarshal([]byte(last), &l) == nil {
 			in.Cash, in.LoanRate, in.OppRate, in.MaintRate, in.Years = l.Cash, l.LoanRate, l.OppRate, l.MaintRate, l.Years
+			if l.JeonseRate > 0 {
+				in.JeonseRate = l.JeonseRate
+			}
 		}
 	}
 	if saved, err := a.store.Setting(a.ctx, buyRentKey(aptSeq, an.Area)); err == nil && saved != "" {
