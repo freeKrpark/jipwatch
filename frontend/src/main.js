@@ -95,7 +95,32 @@ function tradeTable(rows) {
 
 // --- chart -------------------------------------------------------------------
 
-let chart = null;
+// charts on the page, destroyed before the page is redrawn.
+let charts = [];
+
+function clearCharts() {
+    for (const c of charts) c.destroy();
+    charts = [];
+}
+
+// yearTicks returns 1 January of every year from the first x through the
+// year after the last, so an x axis can tick on whole years.
+function yearTicks(xs) {
+    if (!xs.length) return [];
+    const first = new Date(Math.min(...xs)).getUTCFullYear();
+    const last = new Date(Math.max(...xs)).getUTCFullYear();
+    const years = [];
+    for (let y = first; y <= last + 1; y++) years.push(Date.UTC(y, 0, 1));
+    return years;
+}
+
+// yearAxis is an x axis over years that ticks on each 1 January.
+const yearAxis = (years, color) => ({
+    type: 'linear', min: years[0], max: years[years.length - 1],
+    afterBuildTicks: (axis) => { axis.ticks = years.map((value) => ({value})); },
+    ticks: {color: color('--muted'), callback: (v) => new Date(v).getUTCFullYear()},
+    grid: {color: color('--line')},
+});
 
 const monthMs = (month) => Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 15);
 const markLabel = (m) => `${eok(m.price)} (${m.month.replace('-', '.')})`;
@@ -113,13 +138,7 @@ function drawChart(canvas, a) {
     const point = (r) => ({x: Date.parse(r.trade.date), y: r.trade.price / 10000, row: r});
     const used = rows.filter((r) => !r.reason).map(point);
     const left = rows.filter((r) => r.reason && r.reason !== 'canceled').map(point);
-    const all = used.concat(left);
-    const years = [];
-    if (all.length) {
-        const first = new Date(Math.min(...all.map((p) => p.x))).getUTCFullYear();
-        const last = new Date(Math.max(...all.map((p) => p.x))).getUTCFullYear();
-        for (let y = first; y <= last + 1; y++) years.push(Date.UTC(y, 0, 1));
-    }
+    const years = yearTicks(used.concat(left).map((p) => p.x));
     const across = (label, price, colour) => ({
         type: 'line', label, borderColor: colour, borderWidth: 1, borderDash: [6, 4], pointRadius: 0,
         data: [{x: years[0], y: price / 10000}, {x: years[years.length - 1], y: price / 10000}],
@@ -137,20 +156,14 @@ function drawChart(canvas, a) {
     if (s.trough) datasets.push(across(`바닥 ${markLabel(s.trough)}`, s.trough.price, color('--warn')));
     if (s.recentMedian) datasets.push(across(`최근 ${eok(s.recentMedian)}`, s.recentMedian, color('--accent')));
 
-    if (chart) chart.destroy();
-    chart = new Chart(canvas, {
+    charts.push(new Chart(canvas, {
         type: 'scatter',
         data: {datasets},
         options: {
             animation: false,
             maintainAspectRatio: false,
             scales: {
-                x: {
-                    type: 'linear', min: years[0], max: years[years.length - 1],
-                    afterBuildTicks: (axis) => { axis.ticks = years.map((value) => ({value})); },
-                    ticks: {color: color('--muted'), callback: (v) => new Date(v).getUTCFullYear()},
-                    grid: {color: color('--line')},
-                },
+                x: yearAxis(years, color),
                 y: {
                     ticks: {color: color('--muted'), callback: (v) => `${v}억`},
                     grid: {color: color('--line')},
@@ -172,13 +185,25 @@ function drawChart(canvas, a) {
                 },
             },
         },
-    });
+    }));
+}
+
+// verdict reads a premium's distance from its usual level in standard
+// deviations: past one either way, it is out of the complex's usual range.
+function verdict(r) {
+    if (!r.enough) return {text: '비교할 기간이 짧아요', tone: ''};
+    if (r.z >= 1) return {text: '평소보다 비싸게 거래 중', tone: 'hot'};
+    if (r.z <= -1) return {text: '평소보다 싸게 거래 중', tone: 'cool'};
+    return {text: '평소 수준', tone: ''};
 }
 
 // summaryCards leads the complex screen: where recent prices sit against
-// the peak and the trough of the trend line.
-function summaryCards(s) {
-    const card = (label, value, note) => h('div', {class: 'card'},
+// the peak and trough of the trend line, and against the district.
+function summaryCards(a) {
+    const s = a.summary;
+    const r = a.relative;
+    const v = verdict(r);
+    const card = (label, value, note, tone = '') => h('div', {class: `card ${tone}`},
         h('span', {class: 'small'}, label), h('strong', {}, value), note && h('span', {class: 'small'}, note));
     return h('div', {class: 'cards'},
         card('최근 6개월 중간값', s.recentMedian ? eok(s.recentMedian) : '거래 없음',
@@ -188,8 +213,53 @@ function summaryCards(s) {
         card('지금 위치',
             s.recentMedian && s.trough ? `바닥 ${signed(s.fromTrough)}` : '—',
             s.recentMedian && s.peak ? `고점 ${signed(s.fromPeak)}` : null),
+        card('구 대비',
+            r.current ? signed(r.current) : '—',
+            r.points.length ? `평소 ${signed(r.usual)} · ${v.text}` : '비교할 거래가 없어요', v.tone),
     );
 }
+
+// drawPremium plots how far above the district's same-size sales the
+// complex traded, month by month, with its usual premium and usual range.
+function drawPremium(canvas, r) {
+    const css = getComputedStyle(document.documentElement);
+    const color = (name) => css.getPropertyValue(name).trim();
+    const years = yearTicks(r.points.map((p) => monthMs(p.month)));
+    const flat = (y) => [{x: years[0], y}, {x: years[years.length - 1], y}];
+    charts.push(new Chart(canvas, {
+        type: 'line',
+        data: {
+            datasets: [
+                // order: lower draws on top, so the band stays behind the lines.
+                {label: '프리미엄', order: 0, data: r.points.map((p) => ({x: monthMs(p.month), y: p.premium})),
+                    borderColor: color('--fg'), borderWidth: 2, pointRadius: 0, tension: 0.3},
+                {label: `평소 ${signed(r.usual)}`, order: 1, data: flat(r.usual), borderColor: color('--accent'),
+                    borderWidth: 1, borderDash: [6, 4], pointRadius: 0},
+                {label: '평소 범위', order: 2, data: flat(r.usual + r.spread), borderColor: 'transparent',
+                    pointRadius: 0, backgroundColor: color('--line'), fill: '+1'},
+                {label: '', order: 3, data: flat(r.usual - r.spread), borderColor: 'transparent', pointRadius: 0},
+            ],
+        },
+        options: {
+            animation: false,
+            maintainAspectRatio: false,
+            scales: {
+                x: yearAxis(years, color),
+                y: {ticks: {color: color('--muted'), callback: (v) => `${v}%`}, grid: {color: color('--line')}},
+            },
+            plugins: {
+                legend: {labels: {color: color('--muted'), boxHeight: 2, filter: (item) => item.text !== ''}},
+                tooltip: {
+                    filter: (item) => item.datasetIndex === 0,
+                    callbacks: {
+                        label: (ctx) => `${r.points[ctx.dataIndex].month} 구 대비 ${signed(ctx.raw.y)}`,
+                    },
+                },
+            },
+        },
+    }));
+}
+
 // --- sync ------------------------------------------------------------------
 
 // The sync bar sits under the header on every page while watched districts
@@ -334,6 +404,7 @@ async function showHistory(c, area = 0) {
         const complete = cov.fetched >= cov.total;
         const used = a.trades.filter((r) => !r.reason).length;
         const canvas = h('canvas');
+        const premiumCanvas = h('canvas');
         // replaceChildren does not skip false like h does, so build in h.
         body.replaceChildren(h('div', {},
             h('p', {class: 'sub'}, `${gu(c.sggCd)} ${c.umdNm}`),
@@ -349,16 +420,23 @@ async function showHistory(c, area = 0) {
             a.trades.length > 0 && h('div', {},
                 h('p', {class: 'sub'},
                     `전용 ${a.area}㎡ · 분석에 쓰는 거래 ${used}건 · 제외 ${a.trades.length - used}건 (해제·직거래·1~2층)`),
-                summaryCards(a.summary),
+                summaryCards(a),
                 h('div', {class: 'chart'}, canvas),
+                a.relative.points.length > 0 && h('div', {},
+                    h('h2', {}, `구 대비 프리미엄`),
+                    h('p', {class: 'sub'},
+                        `${gu(c.sggCd)}의 다른 단지 전용 ${a.relative.bandMin}~${a.relative.bandMax}㎡ 거래와 비교한 값이에요. ` +
+                        '구 평균엔 신축과 구축이 섞여 있어서, 숫자 자체보다 이 단지의 평소 수준과 비교해서 보세요.'),
+                    h('div', {class: 'chart small-chart'}, premiumCanvas)),
                 tradeTable(a.trades.slice().reverse())),
         ));
+        clearCharts();
         if (a.trades.length) drawChart(canvas, a);
+        if (a.relative.points.length) drawPremium(premiumCanvas, a.relative);
     } catch (err) {
         body.replaceChildren(h('p', {class: 'error'}, errorText(err)));
     }
 }
-
 // --- search: one month -------------------------------------------------------
 
 let query = {sgg: '', month: ''};

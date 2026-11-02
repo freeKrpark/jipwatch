@@ -273,5 +273,13 @@ func (a *App) ComplexAnalysis(sgg, aptSeq string, area int) (Analysis, error) {
 	if err != nil {
 		return Analysis{}, err
 	}
-	return analyse(history, area, time.Now().In(kst)), nil
+	now := time.Now().In(kst)
+	an := analyse(history, area, now)
+	district, err := a.store.DistrictTrades(a.ctx, sgg,
+		float64(an.Area-bandHalf), float64(an.Area+bandHalf), aptSeq)
+	if err != nil {
+		return Analysis{}, err
+	}
+	an.Relative = relative(an, district, now)
+	return an, nil
 }

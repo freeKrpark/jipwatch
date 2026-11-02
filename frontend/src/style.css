@@ -64,4 +64,11 @@ tr.dim td { color: var(--muted); }
 .chart { position: relative; height: 360px; margin: 0 0 20px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin: 0 0 16px; }
 .card { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; }
-.card strong { font-size: 18px; font-variant-numeric: tabular-nums; }.error { padding: 10px 12px; border: 1px solid var(--warn); border-radius: 6px; color: var(--warn); }
+.card strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.card.hot { border-color: var(--warn); }
+.card.hot strong { color: var(--warn); }
+.card.cool { border-color: var(--accent); }
+.card.cool strong { color: var(--accent); }
+.small-chart { height: 220px; }
+h2 { font-size: 17px; margin: 28px 0 4px; }
+.error { padding: 10px 12px; border: 1px solid var(--warn); border-radius: 6px; color: var(--warn); }
