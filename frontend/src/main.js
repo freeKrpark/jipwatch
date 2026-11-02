@@ -122,14 +122,20 @@ const yearAxis = (years, color) => ({
     grid: {color: color('--line')},
 });
 
+// trendRadius matches the Go constant: points read off a wider window are
+// drawn dashed, since sales were too thin for the usual one.
+const trendRadius = 3;
+const isWide = (pt) => Boolean(pt && pt.raw && pt.raw.trend && pt.raw.trend.radius > trendRadius);
+
 const monthMs = (month) => Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 15);
 const markLabel = (m) => `${eok(m.price)} (${m.month.replace('-', '.')})`;
 const signed = (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)}%`;
 
 // drawChart plots one unit type's sales over time: sales the analysis uses
 // in the accent colour, direct and low-floor sales in grey, the rolling
-// median as a line, and the peak, trough and recent median across. Canceled
-// sales are left off; most are re-reported and would show twice.
+// median as a line (dashed where it had to widen), and the peak, trough and
+// recent median across. Canceled sales are left off; most are re-reported
+// and would show twice.
 function drawChart(canvas, a) {
     const rows = a.trades;
     const s = a.summary;
@@ -149,6 +155,7 @@ function drawChart(canvas, a) {
         {
             type: 'line', label: '추세 (앞뒤 3개월 중간값)', borderColor: color('--fg'), borderWidth: 2,
             pointRadius: 0, tension: 0.3, spanGaps: false,
+            segment: {borderDash: (ctx) => (isWide(ctx.p0) || isWide(ctx.p1) ? [5, 4] : undefined)},
             data: a.trend.map((p) => ({x: monthMs(p.month), y: p.median ? p.median / 10000 : null, trend: p})),
         },
     ];
@@ -175,7 +182,10 @@ function drawChart(canvas, a) {
                     callbacks: {
                         label: (ctx) => {
                             const raw = ctx.raw;
-                            if (raw.trend) return `${raw.trend.month} 추세 ${eok(raw.trend.median)} (${raw.trend.sales}건)`;
+                            if (raw.trend) {
+                                const p = raw.trend;
+                                return `${p.month} 추세 ${eok(p.median)} (앞뒤 ${p.radius}개월 ${p.sales}건)`;
+                            }
                             if (!raw.row) return ctx.dataset.label;
                             const {trade: t, reason} = raw.row;
                             const why = reason ? ` · ${reasonLabels[reason]}` : '';
@@ -197,6 +207,10 @@ function verdict(r) {
     return {text: '평소 수준', tone: ''};
 }
 
+// markNote dates a peak or trough, and warns when it came from a widened
+// window: thin sales smooth it, so the real swing was likely sharper.
+const markNote = (m) => monthLabel(m.month.replace('-', '')) + (m.wide ? ' · 거래가 적어 넓게 본 값' : '');
+
 // summaryCards leads the complex screen: where recent prices sit against
 // the peak and trough of the trend line, and against the district.
 function summaryCards(a) {
@@ -208,11 +222,11 @@ function summaryCards(a) {
     return h('div', {class: 'cards'},
         card('최근 6개월 중간값', s.recentMedian ? eok(s.recentMedian) : '거래 없음',
             `${s.recentSales}건 · ${s.recentFrom} 이후`),
-        card('고점', s.peak ? eok(s.peak.price) : '—', s.peak && monthLabel(s.peak.month.replace('-', ''))),
-        card('하락기 바닥', s.trough ? eok(s.trough.price) : '—', s.trough && monthLabel(s.trough.month.replace('-', ''))),
+        card('하락 전 고점', s.peak ? eok(s.peak.price) : '—', s.peak && markNote(s.peak)),
+        card('하락기 바닥', s.trough ? eok(s.trough.price) : '—', s.trough && markNote(s.trough)),
         card('지금 위치',
             s.recentMedian && s.trough ? `바닥 ${signed(s.fromTrough)}` : '—',
-            s.recentMedian && s.peak ? `고점 ${signed(s.fromPeak)}` : null),
+            s.recentMedian && s.peak ? `${s.fromPeak > 0 ? '전고점 넘음' : '고점'} ${signed(s.fromPeak)}` : null),
         card('구 대비',
             r.current ? signed(r.current) : '—',
             r.points.length ? `평소 ${signed(r.usual)} · ${v.text}` : '비교할 거래가 없어요', v.tone),
@@ -422,8 +436,11 @@ async function showHistory(c, area = 0) {
                     `전용 ${a.area}㎡ · 분석에 쓰는 거래 ${used}건 · 제외 ${a.trades.length - used}건 (해제·직거래·1~2층)`),
                 summaryCards(a),
                 h('div', {class: 'chart'}, canvas),
+                a.trend.some((p) => p.radius > trendRadius) && h('p', {class: 'status'},
+                    '추세선의 점선 구간은 거래가 적어서 앞뒤 최대 6개월까지 넓혀 본 값이에요. ' +
+                    '그만큼 완만하게 그려져서, 실제 오르내림은 더 컸을 수 있어요.'),
                 a.relative.points.length > 0 && h('div', {},
-                    h('h2', {}, `구 대비 프리미엄`),
+                    h('h2', {}, '구 대비 프리미엄'),
                     h('p', {class: 'sub'},
                         `${gu(c.sggCd)}의 다른 단지 전용 ${a.relative.bandMin}~${a.relative.bandMax}㎡ 거래와 비교한 값이에요. ` +
                         '구 평균엔 신축과 구축이 섞여 있어서, 숫자 자체보다 이 단지의 평소 수준과 비교해서 보세요.'),
@@ -437,6 +454,7 @@ async function showHistory(c, area = 0) {
         body.replaceChildren(h('p', {class: 'error'}, errorText(err)));
     }
 }
+
 // --- search: one month -------------------------------------------------------
 
 let query = {sgg: '', month: ''};

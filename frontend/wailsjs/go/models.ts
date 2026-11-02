@@ -61,6 +61,7 @@ export namespace main {
 	export class Mark {
 	    month: string;
 	    price: number;
+	    wide: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Mark(source);
@@ -70,6 +71,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.month = source["month"];
 	        this.price = source["price"];
+	        this.wide = source["wide"];
 	    }
 	}
 	export class Summary {
@@ -118,6 +120,7 @@ export namespace main {
 	    month: string;
 	    median: number;
 	    sales: number;
+	    radius: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new TrendPoint(source);
@@ -128,6 +131,7 @@ export namespace main {
 	        this.month = source["month"];
 	        this.median = source["median"];
 	        this.sales = source["sales"];
+	        this.radius = source["radius"];
 	    }
 	}
 	export class Classified {

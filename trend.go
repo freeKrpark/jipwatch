@@ -6,20 +6,25 @@ import (
 )
 
 const (
-	trendRadius   = 3
-	trendMinSales = 3
-	recentSpan    = 6
+	trendRadius    = 3
+	trendMaxRadius = 6
+	trendMinSales  = 3
+	recentSpan     = 6
 )
 
 type TrendPoint struct {
 	Month  string `json:"month"`
 	Median int    `json:"median"`
 	Sales  int    `json:"sales"`
+	Radius int    `json:"radius"`
 }
+
+func (p TrendPoint) Wide() bool { return p.Radius > trendRadius }
 
 type Mark struct {
 	Month string `json:"month"`
 	Price int    `json:"price"`
+	Wide  bool   `json:"wide"`
 }
 
 type Summary struct {
@@ -71,13 +76,17 @@ func trend(rows []Classified) []TrendPoint {
 		return points
 	}
 	for m := first; m <= last; m = addMonths(m, 1) {
-		var window []int
-		for d := -trendRadius; d <= trendRadius; d++ {
-			window = append(window, byMonth[addMonths(m, d)]...)
-		}
-		p := TrendPoint{Month: m, Sales: len(window)}
-		if len(window) >= trendMinSales {
-			p.Median = median(window)
+		p := TrendPoint{Month: m}
+		for r := trendRadius; r <= trendMaxRadius; r++ {
+			var window []int
+			for d := -r; d <= r; d++ {
+				window = append(window, byMonth[addMonths(m, d)]...)
+			}
+			p.Sales = len(window)
+			if len(window) >= trendMinSales {
+				p.Median, p.Radius = median(window), r
+				break
+			}
 		}
 		points = append(points, p)
 	}
@@ -86,19 +95,27 @@ func trend(rows []Classified) []TrendPoint {
 
 func summarise(rows []Classified, points []TrendPoint, now time.Time) Summary {
 	var s Summary
-	peakAt := -1
+	high, peakAt, troughAt, deepest := -1, -1, -1, 0.0
 	for i, p := range points {
-		if p.Median > 0 && (peakAt < 0 || p.Median > points[peakAt].Median) {
-			peakAt = i
+		if p.Median == 0 {
+			continue
+		}
+		if high < 0 || p.Median > points[high].Median {
+			high = i
+			continue
+		}
+		if fall := pct(p.Median, points[high].Median); fall < deepest {
+			deepest, peakAt, troughAt = fall, high, i
 		}
 	}
+	if peakAt < 0 {
+		peakAt = high // never fell: the peak is simply the high
+	}
 	if peakAt >= 0 {
-		s.Peak = &Mark{points[peakAt].Month, points[peakAt].Median}
-		for _, p := range points[peakAt+1:] {
-			if p.Median > 0 && (s.Trough == nil || p.Median < s.Trough.Price) {
-				s.Trough = &Mark{p.Month, p.Median}
-			}
-		}
+		s.Peak = &Mark{points[peakAt].Month, points[peakAt].Median, points[peakAt].Wide()}
+	}
+	if troughAt >= 0 {
+		s.Trough = &Mark{points[troughAt].Month, points[troughAt].Median, points[troughAt].Wide()}
 	}
 
 	s.RecentFrom = now.AddDate(0, -recentSpan, 0).Format("2006-01-02")
