@@ -3,6 +3,10 @@
 import {main} from '../models';
 import {molit} from '../models';
 
+export function BuyRent(arg1:string,arg2:main.BuyRentInput):Promise<main.BuyRentResult>;
+
+export function BuyRentStart(arg1:string,arg2:string,arg3:number):Promise<main.BuyRentStart>;
+
 export function ComplexAnalysis(arg1:string,arg2:string,arg3:number):Promise<main.Analysis>;
 
 export function ComplexHistory(arg1:string,arg2:string):Promise<Array<molit.Trade>>;

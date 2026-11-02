@@ -1,7 +1,7 @@
 import Chart from 'chart.js/auto';
 import {
-    ComplexAnalysis, ComplexTrades, Coverage, DefaultMonth, Districts, HasAPIKey, IsWatched, Month,
-    RefreshMonth, SaveAPIKey, SyncWatched, Unwatch, Watch, Watchlist,
+    BuyRent, BuyRentStart, ComplexAnalysis, ComplexTrades, Coverage, DefaultMonth, Districts, HasAPIKey,
+    IsWatched, Month, RefreshMonth, SaveAPIKey, SyncWatched, Unwatch, Watch, Watchlist,
 } from '../wailsjs/go/main/App';
 import {EventsOn} from '../wailsjs/runtime/runtime';
 
@@ -274,6 +274,124 @@ function drawPremium(canvas, r) {
     }));
 }
 
+// --- buy or rent ---------------------------------------------------------------
+
+const man = (v) => `${Math.round(v).toLocaleString()}만`;
+const money = (v) => (Math.abs(v) >= 10000 ? eok(v) : man(v));
+
+// buyRentSection is the buy-or-rent form for one unit type of a complex.
+// Money is entered in 억, as people think of it, and sent to Go in 만원.
+// Every change is recalculated and saved for next time.
+function buyRentSection(c, area) {
+    const result = h('div', {}, h('p', {class: 'sub'}, '불러오는 중…'));
+    const section = h('div', {}, h('h2', {}, '매수 vs 전세'),
+        h('p', {class: 'sub'}, '같은 현금으로 사는 것과 전세 사는 것의 1년 비용을 비교해서, 집값이 연 몇 % 올라야 사는 쪽이 이득인지 계산해요.'),
+        result);
+
+    BuyRentStart(c.sggCd, c.aptSeq, area).then((start) => {
+        const inp = start.input;
+        const field = (label, value, opts = {}) => {
+            const input = h('input', {type: 'number', step: opts.step || 'any', min: 0, value: value ?? '',
+                placeholder: opts.placeholder || ''});
+            return {input, node: h('label', {}, label, input, opts.hint && h('span', {class: 'hint'}, opts.hint))};
+        };
+        const eokOf = (manwon) => (manwon ? +(manwon / 10000).toFixed(2) : '');
+        const f = {
+            price: field('매매가 (억)', eokOf(inp.price), {step: 0.01, hint: '기본은 최근 6개월 중간값'}),
+            jeonse: field('전세가 (억)', eokOf(inp.jeonse), {step: 0.01, hint: '네이버 전세 호가 등'}),
+            cash: field('보유 현금 (억)', eokOf(inp.cash), {step: 0.01, hint: '이 PC에만 저장돼요'}),
+            loanRate: field('대출 금리 (%)', inp.loanRate, {step: 0.1, hint: '주담대·전세대출'}),
+            oppRate: field('기회수익률 (%)', inp.oppRate, {step: 0.1, hint: '예금 3% 안팎 · 국고채 3%대 · 주식 장기 6~8%'}),
+            maintRate: field('유지보수 (%/년)', inp.maintRate, {step: 0.1, hint: '구축이면 높게'}),
+            years: field('보유 기간 (년)', inp.years, {step: 1, hint: '취득 비용을 나눌 기간'}),
+            tax: field('보유세 (만원/년)', inp.propertyTax || '', {step: 1, placeholder: '자동 추정',
+                hint: '고지서 금액을 알면 넣으세요'}),
+        };
+        const out = h('div');
+        const read = () => ({
+            price: Math.round((+f.price.input.value || 0) * 10000),
+            jeonse: Math.round((+f.jeonse.input.value || 0) * 10000),
+            cash: Math.round((+f.cash.input.value || 0) * 10000),
+            area: inp.area,
+            loanRate: +f.loanRate.input.value || 0,
+            oppRate: +f.oppRate.input.value || 0,
+            maintRate: +f.maintRate.input.value || 0,
+            years: Math.max(1, Math.round(+f.years.input.value || 1)),
+            propertyTax: Math.round(+f.tax.input.value || 0),
+        });
+        let timer = null;
+        const recalc = () => {
+            clearTimeout(timer);
+            timer = setTimeout(async () => {
+                const v = read();
+                if (!v.price || !v.jeonse) {
+                    out.replaceChildren(h('p', {class: 'notice'}, '매매가와 전세가를 넣으면 계산돼요.'));
+                    return;
+                }
+                try {
+                    out.replaceChildren(renderBuyRent(await BuyRent(c.aptSeq, v), start.growth, v));
+                } catch (err) {
+                    out.replaceChildren(h('p', {class: 'error'}, errorText(err)));
+                }
+            }, 250);
+        };
+        const form = h('div', {class: 'form-grid', oninput: recalc}, Object.values(f).map((x) => x.node));
+        result.replaceChildren(form, out);
+        recalc();
+    }).catch((err) => result.replaceChildren(h('p', {class: 'error'}, errorText(err))));
+    return section;
+}
+
+// pastVerdict sets the break-even against the long and the recent rise.
+// They can disagree, as when a complex doubled since 2016 but went nowhere
+// since the 2021 peak; then it says so rather than pick one.
+function pastVerdict(g, breakEven) {
+    const longOK = g.all >= breakEven;
+    const recentOK = g.recent5 >= breakEven;
+    if (!g.recent5) return longOK ? '과거 흐름이 이어지면 사는 쪽이 유리해요.' : '과거 흐름보다 더 올라야 본전이에요.';
+    if (longOK && recentOK) return '장기로도 최근 5년으로도, 이 흐름이면 사는 쪽이 유리해요.';
+    if (longOK) return '장기 흐름이면 사는 쪽이 유리하지만, 최근 5년 흐름으로는 본전이 안 돼요.';
+    if (recentOK) return '최근 5년 흐름이면 사는 쪽이 유리하지만, 장기 흐름으로는 본전이 안 돼요.';
+    return '장기로도 최근 5년으로도, 과거 흐름보다 더 올라야 본전이에요.';
+}
+
+// renderBuyRent states the break-even, puts it against how fast this
+// complex's prices have risen, and shows where both costs come from.
+function renderBuyRent(r, g, v) {
+    const pctText = (x) => `${x.toFixed(1)}%`;
+    const headline = r.breakEven > 0
+        ? h('p', {class: 'headline'}, '이 가격에 사면 집값이 ', h('strong', {}, `연 ${pctText(r.breakEven)}`),
+            ' 이상 올라야 전세보다 이득이에요.')
+        : h('p', {class: 'headline'}, '지금 조건이면 집값이 그대로여도 ', h('strong', {}, '사는 쪽이 연 ' +
+            money(r.rentTotal - r.buyTotal)), ' 덜 들어요.');
+    const past = g.since && h('p', {},
+        `이 단지는 ${monthLabel(g.since.replace('-', ''))}부터 연 ${pctText(g.all)}`,
+        g.recent5 ? `, 최근 5년은 연 ${pctText(g.recent5)} 올랐어요. ` : ' 올랐어요. ',
+        h('strong', {}, pastVerdict(g, r.breakEven)));
+    const lines = (title, items, total) => h('div', {class: 'table'}, h('table', {},
+        h('thead', {}, h('tr', {}, h('th', {}, title), h('th', {class: 'num'}, '연간'))),
+        h('tbody', {}, items.map((l) => h('tr', {}, h('td', {class: 'wrap'}, l.label), h('td', {class: 'num'}, man(l.amount)))),
+            h('tr', {class: 'total'}, h('td', {}, '합계'), h('td', {class: 'num'}, man(total))))));
+    const sens = h('div', {class: 'table'}, h('table', {},
+        h('thead', {}, h('tr', {}, h('th', {}, '기회수익률'), r.sensitivity.map((x) => h('th', {class: 'num'}, `${x.oppRate}%`)))),
+        h('tbody', {}, h('tr', {}, h('td', {}, '손익분기 상승률'),
+            r.sensitivity.map((x) => h('td', {class: 'num'}, `연 ${pctText(x.breakEven)}`))))));
+    return h('div', {},
+        headline,
+        past,
+        h('p', {class: 'status'},
+            `대출 ${money(r.loan)} 필요 · 취득세·중개수수료 ${money(r.acquireCost)} · ` +
+            `보유세 ${money(r.propertyTax)}${r.taxEstimated ? ' (추정)' : ''}`),
+        h('div', {class: 'two-col'}, lines('살 때', r.buy, r.buyTotal), lines('전세 살 때', r.rent, r.rentTotal)),
+        h('p', {class: 'sub'}, '기회수익률에 따라 이렇게 달라져요. 결론이 뒤집히면 투자 성향에 따라 갈리는 가격이에요.'),
+        sens,
+        h('p', {class: 'fine'},
+            '1주택 기준이에요. 취득세는 2025년 요율, 중개수수료는 법정 상한, 보유세는 공시가를 매매가의 70%로 보고 ' +
+            '특례 없이 어림한 값이에요. 세제가 바뀌었을 수 있으니 큰 결정 전에는 확인하세요. ' +
+            `집값 상승은 안 넣었어요. 위의 ${pctText(r.breakEven)}가 그 자리예요.`),
+    );
+}
+
 // --- sync ------------------------------------------------------------------
 
 // The sync bar sits under the header on every page while watched districts
@@ -445,6 +563,8 @@ async function showHistory(c, area = 0) {
                         `${gu(c.sggCd)}의 다른 단지 전용 ${a.relative.bandMin}~${a.relative.bandMax}㎡ 거래와 비교한 값이에요. ` +
                         '구 평균엔 신축과 구축이 섞여 있어서, 숫자 자체보다 이 단지의 평소 수준과 비교해서 보세요.'),
                     h('div', {class: 'chart small-chart'}, premiumCanvas)),
+                buyRentSection(c, a.area),
+                h('h2', {}, '거래 내역'),
                 tradeTable(a.trades.slice().reverse())),
         ));
         clearCharts();

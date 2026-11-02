@@ -220,6 +220,158 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class BuyRentInput {
+	    price: number;
+	    jeonse: number;
+	    cash: number;
+	    area: number;
+	    loanRate: number;
+	    oppRate: number;
+	    maintRate: number;
+	    years: number;
+	    propertyTax: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new BuyRentInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.price = source["price"];
+	        this.jeonse = source["jeonse"];
+	        this.cash = source["cash"];
+	        this.area = source["area"];
+	        this.loanRate = source["loanRate"];
+	        this.oppRate = source["oppRate"];
+	        this.maintRate = source["maintRate"];
+	        this.years = source["years"];
+	        this.propertyTax = source["propertyTax"];
+	    }
+	}
+	export class Sensitivity {
+	    oppRate: number;
+	    breakEven: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Sensitivity(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.oppRate = source["oppRate"];
+	        this.breakEven = source["breakEven"];
+	    }
+	}
+	export class CostLine {
+	    label: string;
+	    amount: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CostLine(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.label = source["label"];
+	        this.amount = source["amount"];
+	    }
+	}
+	export class BuyRentResult {
+	    loan: number;
+	    acquireCost: number;
+	    propertyTax: number;
+	    taxEstimated: boolean;
+	    buy: CostLine[];
+	    buyTotal: number;
+	    rent: CostLine[];
+	    rentTotal: number;
+	    breakEven: number;
+	    sensitivity: Sensitivity[];
+	
+	    static createFrom(source: any = {}) {
+	        return new BuyRentResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.loan = source["loan"];
+	        this.acquireCost = source["acquireCost"];
+	        this.propertyTax = source["propertyTax"];
+	        this.taxEstimated = source["taxEstimated"];
+	        this.buy = this.convertValues(source["buy"], CostLine);
+	        this.buyTotal = source["buyTotal"];
+	        this.rent = this.convertValues(source["rent"], CostLine);
+	        this.rentTotal = source["rentTotal"];
+	        this.breakEven = source["breakEven"];
+	        this.sensitivity = this.convertValues(source["sensitivity"], Sensitivity);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Growth {
+	    since: string;
+	    all: number;
+	    recent5: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Growth(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.since = source["since"];
+	        this.all = source["all"];
+	        this.recent5 = source["recent5"];
+	    }
+	}
+	export class BuyRentStart {
+	    input: BuyRentInput;
+	    growth: Growth;
+	
+	    static createFrom(source: any = {}) {
+	        return new BuyRentStart(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.input = this.convertValues(source["input"], BuyRentInput);
+	        this.growth = this.convertValues(source["growth"], Growth);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	
 	export class ComplexCount {
 	    aptSeq: string;
@@ -241,6 +393,7 @@ export namespace main {
 	        this.sales = source["sales"];
 	    }
 	}
+	
 	export class Coverage {
 	    from: string;
 	    fetched: number;
@@ -271,6 +424,7 @@ export namespace main {
 	        this.name = source["name"];
 	    }
 	}
+	
 	
 	export class MonthSummary {
 	    total: number;
@@ -316,6 +470,7 @@ export namespace main {
 		    return a;
 		}
 	}
+	
 	
 	
 	

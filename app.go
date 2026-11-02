@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -282,4 +283,49 @@ func (a *App) ComplexAnalysis(sgg, aptSeq string, area int) (Analysis, error) {
 	}
 	an.Relative = relative(an, district, now)
 	return an, nil
+}
+
+type BuyRentStart struct {
+	Input  BuyRentInput `json:"input"`
+	Growth Growth       `json:"growth"`
+}
+
+func buyRentKey(aptSeq string, area int) string {
+	return fmt.Sprintf("buyrent:%s:%d", aptSeq, area)
+}
+
+const buyRentLast = "buyrent:last"
+
+func (a *App) BuyRentStart(sgg, aptSeq string, area int) (BuyRentStart, error) {
+	history, err := a.store.ComplexHistory(a.ctx, sgg, aptSeq)
+	if err != nil {
+		return BuyRentStart{}, err
+	}
+	an := analyse(history, area, time.Now().In(kst))
+	in := BuyRentInput{Price: an.Summary.RecentMedian, Area: an.Area,
+		LoanRate: 4.5, OppRate: 3, MaintRate: 0.5, Years: 10}
+	if last, err := a.store.Setting(a.ctx, buyRentLast); err == nil && last != "" {
+		var l BuyRentInput
+		if json.Unmarshal([]byte(last), &l) == nil {
+			in.Cash, in.LoanRate, in.OppRate, in.MaintRate, in.Years = l.Cash, l.LoanRate, l.OppRate, l.MaintRate, l.Years
+		}
+	}
+	if saved, err := a.store.Setting(a.ctx, buyRentKey(aptSeq, an.Area)); err == nil && saved != "" {
+		json.Unmarshal([]byte(saved), &in)
+	}
+	return BuyRentStart{Input: in, Growth: growth(an.Trend)}, nil
+}
+
+func (a *App) BuyRent(aptSeq string, in BuyRentInput) (BuyRentResult, error) {
+	b, err := json.Marshal(in)
+	if err != nil {
+		return BuyRentResult{}, err
+	}
+	if err := a.store.SetSetting(a.ctx, buyRentKey(aptSeq, in.Area), string(b)); err != nil {
+		return BuyRentResult{}, err
+	}
+	if err := a.store.SetSetting(a.ctx, buyRentLast, string(b)); err != nil {
+		return BuyRentResult{}, err
+	}
+	return buyRent(in), nil
 }
