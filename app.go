@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
+	"sync"
 	"time"
 
 	"github.com/freekrpark/jipwatch/internal/molit"
@@ -15,10 +15,17 @@ import (
 // back to the frontend; only Go code reads it.
 const settingAPIKey = "molit.api_key"
 
+var kst = time.FixedZone("KST", 9*60*60)
+
 // App holds the methods the frontend can call.
 type App struct {
 	ctx   context.Context
 	store *store.Store
+
+	// The last month fetched, so opening a complex does not call the API again.
+	mu        sync.Mutex
+	lastQuery string
+	lastMonth []molit.Trade
 }
 
 func NewApp(st *store.Store) *App {
@@ -31,11 +38,6 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 }
 
-// Greet returns a greeting for the given name
-func (a *App) Greet(name string) string {
-	return fmt.Sprintf("Hello %s, It's show time!", name)
-}
-
 // HasAPIKey reports whether a key has been saved.
 func (a *App) HasAPIKey() (bool, error) {
 	key, err := a.store.Setting(a.ctx, settingAPIKey)
@@ -44,7 +46,7 @@ func (a *App) HasAPIKey() (bool, error) {
 
 // SaveAPIKey tries key against the API and saves it only if it works.
 func (a *App) SaveAPIKey(key string) error {
-	key = strings.TrimSpace(key)
+	key = molit.NormalizeKey(key)
 	if key == "" {
 		return errors.New("API 키를 입력해 주세요")
 	}
@@ -58,5 +60,59 @@ func (a *App) SaveAPIKey(key string) error {
 		}
 		return fmt.Errorf("키를 확인하지 못했어요: %w", err)
 	}
+	a.mu.Lock()
+	a.lastQuery, a.lastMonth = "", nil
+	a.mu.Unlock()
 	return a.store.SetSetting(a.ctx, settingAPIKey, key)
+}
+
+// DefaultMonth is last month in Korea, "200601" layout: the latest month
+// with a fair share of its sales reported.
+func (a *App) DefaultMonth() string {
+	return time.Now().In(kst).AddDate(0, -1, 0).Format("200601")
+}
+
+// Month lists the complexes with sales in district sgg in month.
+func (a *App) Month(sgg, month string) (MonthSummary, error) {
+	trades, err := a.month(sgg, month)
+	if err != nil {
+		return MonthSummary{}, err
+	}
+	return summarize(trades), nil
+}
+
+// ComplexTrades lists one complex's sales in district sgg in month.
+func (a *App) ComplexTrades(sgg, month, aptSeq string) ([]molit.Trade, error) {
+	trades, err := a.month(sgg, month)
+	if err != nil {
+		return nil, err
+	}
+	return complexTrades(trades, aptSeq), nil
+}
+
+func (a *App) month(sgg, month string) ([]molit.Trade, error) {
+	if err := checkQuery(sgg, month); err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	query := sgg + " " + month
+	if query == a.lastQuery {
+		return a.lastMonth, nil
+	}
+	key, err := a.store.Setting(a.ctx, settingAPIKey)
+	if err != nil {
+		return nil, err
+	}
+	if key == "" {
+		return nil, errors.New("API 키를 먼저 설정해 주세요")
+	}
+	ctx, cancel := context.WithTimeout(a.ctx, time.Minute)
+	defer cancel()
+	trades, err := molit.NewClient(key).Month(ctx, sgg, month)
+	if err != nil {
+		return nil, err
+	}
+	a.lastQuery, a.lastMonth = query, trades
+	return trades, nil
 }

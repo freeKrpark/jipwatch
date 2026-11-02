@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -21,7 +22,7 @@ type Client struct {
 
 func NewClient(key string) *Client {
 	return &Client{
-		Key:      key,
+		Key:      NormalizeKey(key),
 		Endpoint: DefaultEndpoint,
 		PageSize: 1000,
 		HTTP:     &http.Client{Timeout: 30 * time.Second},
@@ -76,4 +77,15 @@ func (c *Client) page(ctx context.Context, sggCd, ym string, page, rows int) ([]
 		return nil, 0, fmt.Errorf("HTTP %d: %.120q", resp.StatusCode, body)
 	}
 	return Parse(body)
+}
+
+func NormalizeKey(key string) string {
+	key = strings.TrimSpace(key)
+	if !strings.Contains(key, "%") {
+		return key
+	}
+	if decoded, err := url.PathUnescape(key); err == nil {
+		return decoded
+	}
+	return key
 }
