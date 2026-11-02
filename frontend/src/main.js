@@ -1,5 +1,4 @@
-import {ComplexTrades, DefaultMonth, HasAPIKey, Month, SaveAPIKey} from '../wailsjs/go/main/App';
-
+import {ComplexTrades, DefaultMonth, HasAPIKey, Month, RefreshMonth, SaveAPIKey} from '../wailsjs/go/main/App';
 const app = document.getElementById('app');
 const settingsButton = document.getElementById('settings');
 
@@ -99,20 +98,30 @@ async function showSearch() {
     else sgg.focus();
 }
 
-async function loadMonth(button, result) {
+async function loadMonth(button, result, refresh = false) {
     result.replaceChildren();
     try {
-        const s = await busy(button, '불러오는 중…', () => Month(query.sgg, query.month));
-        result.replaceChildren(renderMonth(s));
+        const get = refresh ? RefreshMonth : Month;
+        const s = await busy(button, refresh ? '새로 받는 중…' : '불러오는 중…', () => get(query.sgg, query.month));
+        result.replaceChildren(renderMonth(s, () => loadMonth(button, result, true)));
     } catch (err) {
         result.replaceChildren(h('p', {class: 'error'}, errorText(err)));
     }
 }
 
-function renderMonth(s) {
+function renderMonth(s, refresh) {
     const head = h('p', {class: 'sub'},
         `${query.sgg} · ${monthLabel(query.month)} · 거래 ${s.total}건 · 해제 ${s.canceled}건 · 직거래 ${s.direct}건`);
-    if (s.complexes.length === 0) return h('div', {}, head, h('p', {}, '이 달에는 신고된 거래가 없어요.'));
+    const status = h('p', {class: 'status'},
+        `${s.fetchedAt}에 받은 데이터 · `,
+        h('button', {class: 'link', onclick: refresh}, '새로 받기'));
+    const notice = s.compared && h('p', {class: 'notice'},
+        s.added || s.newlyCanceled
+            ? `지난번 이후 새로 신고된 거래 ${s.added}건 · 새로 해제된 거래 ${s.newlyCanceled}건`
+            : '지난번과 달라진 거래가 없어요');
+    if (s.complexes.length === 0) {
+        return h('div', {}, head, status, notice, h('p', {}, '이 달에는 신고된 거래가 없어요.'));
+    }
     const rows = s.complexes.map((c) => h('tr', {},
         h('td', {class: 'wrap'},
             h('a', {onclick: () => showComplex(c.aptSeq, c.aptNm)}, c.aptNm),
@@ -120,12 +129,11 @@ function renderMonth(s) {
         h('td', {class: 'num'}, String(c.buildYear)),
         h('td', {class: 'num'}, String(c.sales)),
     ));
-    return h('div', {}, head, h('div', {class: 'table'}, h('table', {},
+    return h('div', {}, head, status, notice, h('div', {class: 'table'}, h('table', {},
         h('thead', {}, h('tr', {}, h('th', {}, '단지'), h('th', {class: 'num'}, '준공'), h('th', {class: 'num'}, '거래'))),
         h('tbody', {}, rows),
     )));
 }
-
 // --- complex ---------------------------------------------------------------
 
 async function showComplex(aptSeq, aptNm) {

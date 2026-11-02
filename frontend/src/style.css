@@ -45,4 +45,6 @@ tr.dim td { color: var(--muted); }
     border: 1px solid var(--line); border-radius: 4px; margin-right: 4px;
 }
 .flag.warn { color: var(--warn); border-color: currentColor; }
+.status { color: var(--muted); font-size: 13px; margin: -12px 0 16px; }
+.notice { padding: 10px 12px; border: 1px solid var(--accent); border-radius: 6px; }
 .error { padding: 10px 12px; border: 1px solid var(--warn); border-radius: 6px; color: var(--warn); }

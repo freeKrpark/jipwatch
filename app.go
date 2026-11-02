@@ -21,11 +21,7 @@ var kst = time.FixedZone("KST", 9*60*60)
 type App struct {
 	ctx   context.Context
 	store *store.Store
-
-	// The last month fetched, so opening a complex does not call the API again.
-	mu        sync.Mutex
-	lastQuery string
-	lastMonth []molit.Trade
+	mu    sync.Mutex // one fetch at a time
 }
 
 func NewApp(st *store.Store) *App {
@@ -60,9 +56,6 @@ func (a *App) SaveAPIKey(key string) error {
 		}
 		return fmt.Errorf("키를 확인하지 못했어요: %w", err)
 	}
-	a.mu.Lock()
-	a.lastQuery, a.lastMonth = "", nil
-	a.mu.Unlock()
 	return a.store.SetSetting(a.ctx, settingAPIKey, key)
 }
 
@@ -72,47 +65,72 @@ func (a *App) DefaultMonth() string {
 	return time.Now().In(kst).AddDate(0, -1, 0).Format("200601")
 }
 
-// Month lists the complexes with sales in district sgg in month.
+// Month lists the complexes with sales in district sgg in month, from the
+// saved copy if there is one and from the API otherwise.
 func (a *App) Month(sgg, month string) (MonthSummary, error) {
-	trades, err := a.month(sgg, month)
-	if err != nil {
-		return MonthSummary{}, err
-	}
-	return summarize(trades), nil
+	return a.summary(sgg, month, false)
+}
+
+// RefreshMonth fetches the month from the API again, saves it in place of
+// the old copy, and counts what changed.
+func (a *App) RefreshMonth(sgg, month string) (MonthSummary, error) {
+	return a.summary(sgg, month, true)
 }
 
 // ComplexTrades lists one complex's sales in district sgg in month.
 func (a *App) ComplexTrades(sgg, month, aptSeq string) ([]molit.Trade, error) {
-	trades, err := a.month(sgg, month)
+	trades, _, _, err := a.trades(sgg, month, false)
 	if err != nil {
 		return nil, err
 	}
 	return complexTrades(trades, aptSeq), nil
 }
 
-func (a *App) month(sgg, month string) ([]molit.Trade, error) {
+func (a *App) summary(sgg, month string, refresh bool) (MonthSummary, error) {
+	trades, fetchedAt, change, err := a.trades(sgg, month, refresh)
+	if err != nil {
+		return MonthSummary{}, err
+	}
+	s := summarize(trades)
+	s.FetchedAt = fetchedAt
+	if change != nil && !change.First {
+		s.Compared, s.Added, s.NewlyCanceled = true, len(change.Added), len(change.Canceled)
+	}
+	return s, nil
+}
+
+// trades returns the saved copy of a month unless refresh is set or there is
+// none; then it fetches the month, saves it, and returns what changed.
+func (a *App) trades(sgg, month string, refresh bool) ([]molit.Trade, string, *store.Change, error) {
 	if err := checkQuery(sgg, month); err != nil {
-		return nil, err
+		return nil, "", nil, err
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	query := sgg + " " + month
-	if query == a.lastQuery {
-		return a.lastMonth, nil
+	if !refresh {
+		saved, fetchedAt, err := a.store.Month(a.ctx, sgg, month)
+		if err != nil || fetchedAt != "" {
+			return saved, fetchedAt, nil, err
+		}
 	}
+
 	key, err := a.store.Setting(a.ctx, settingAPIKey)
 	if err != nil {
-		return nil, err
+		return nil, "", nil, err
 	}
 	if key == "" {
-		return nil, errors.New("API 키를 먼저 설정해 주세요")
+		return nil, "", nil, errors.New("API 키를 먼저 설정해 주세요")
 	}
 	ctx, cancel := context.WithTimeout(a.ctx, time.Minute)
 	defer cancel()
-	trades, err := molit.NewClient(key).Month(ctx, sgg, month)
+	fresh, err := molit.NewClient(key).Month(ctx, sgg, month)
 	if err != nil {
-		return nil, err
+		return nil, "", nil, err
 	}
-	a.lastQuery, a.lastMonth = query, trades
-	return trades, nil
+	change, err := a.store.ReplaceMonth(a.ctx, sgg, month, fresh, time.Now().In(kst))
+	if err != nil {
+		return nil, "", nil, err
+	}
+	saved, fetchedAt, err := a.store.Month(a.ctx, sgg, month)
+	return saved, fetchedAt, &change, err
 }

@@ -25,6 +25,10 @@ export namespace main {
 	    canceled: number;
 	    direct: number;
 	    complexes: ComplexCount[];
+	    fetchedAt: string;
+	    compared: boolean;
+	    added: number;
+	    newlyCanceled: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new MonthSummary(source);
@@ -36,6 +40,10 @@ export namespace main {
 	        this.canceled = source["canceled"];
 	        this.direct = source["direct"];
 	        this.complexes = this.convertValues(source["complexes"], ComplexCount);
+	        this.fetchedAt = source["fetchedAt"];
+	        this.compared = source["compared"];
+	        this.added = source["added"];
+	        this.newlyCanceled = source["newlyCanceled"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

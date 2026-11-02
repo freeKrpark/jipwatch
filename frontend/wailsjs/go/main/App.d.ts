@@ -11,4 +11,6 @@ export function HasAPIKey():Promise<boolean>;
 
 export function Month(arg1:string,arg2:string):Promise<main.MonthSummary>;
 
+export function RefreshMonth(arg1:string,arg2:string):Promise<main.MonthSummary>;
+
 export function SaveAPIKey(arg1:string):Promise<void>;

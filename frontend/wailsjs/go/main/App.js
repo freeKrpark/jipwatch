@@ -18,6 +18,10 @@ export function Month(arg1, arg2) {
   return window['go']['main']['App']['Month'](arg1, arg2);
 }
 
+export function RefreshMonth(arg1, arg2) {
+  return window['go']['main']['App']['RefreshMonth'](arg1, arg2);
+}
+
 export function SaveAPIKey(arg1) {
   return window['go']['main']['App']['SaveAPIKey'](arg1);
 }

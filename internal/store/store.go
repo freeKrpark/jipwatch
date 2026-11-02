@@ -14,6 +14,33 @@ var migrations = []string{
 		key   TEXT PRIMARY KEY,
 		value TEXT NOT NULL
 	)`,
+	// A district-month is fetched and replaced as a whole; fetches records when.
+	`CREATE TABLE fetches (
+		sgg_cd     TEXT NOT NULL,
+		ym         TEXT NOT NULL,
+		fetched_at TEXT NOT NULL,
+		PRIMARY KEY (sgg_cd, ym)
+	)`,
+	`CREATE TABLE trades (
+		sgg_cd        TEXT    NOT NULL,
+		ym            TEXT    NOT NULL,
+		apt_seq       TEXT    NOT NULL,
+		apt_nm        TEXT    NOT NULL,
+		umd_nm        TEXT    NOT NULL,
+		jibun         TEXT    NOT NULL,
+		area          REAL    NOT NULL,
+		floor         INTEGER NOT NULL,
+		price         INTEGER NOT NULL,
+		date          TEXT    NOT NULL,
+		direct        INTEGER NOT NULL,
+		canceled      INTEGER NOT NULL,
+		canceled_on   TEXT    NOT NULL,
+		registered_on TEXT    NOT NULL,
+		build_year    INTEGER NOT NULL,
+		first_seen    TEXT    NOT NULL
+	)`,
+	`CREATE INDEX trades_by_month ON trades (sgg_cd, ym)`,
+	`CREATE INDEX trades_by_complex ON trades (apt_seq, date)`,
 }
 
 type Store struct {

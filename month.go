@@ -13,6 +13,11 @@ type MonthSummary struct {
 	Canceled  int            `json:"canceled"`
 	Direct    int            `json:"direct"`
 	Complexes []ComplexCount `json:"complexes"`
+
+	FetchedAt     string `json:"fetchedAt"`
+	Compared      bool   `json:"compared"`
+	Added         int    `json:"added"`
+	NewlyCanceled int    `json:"newlyCanceled"`
 }
 
 type ComplexCount struct {
