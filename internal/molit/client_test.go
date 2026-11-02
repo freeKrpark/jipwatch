@@ -89,3 +89,30 @@ func TestMonthAPIError(t *testing.T) {
 		t.Fatalf("want APIError 30 through the wrapping, got %v", err)
 	}
 }
+
+func TestPing(t *testing.T) {
+	var rows string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rows = r.URL.Query().Get("numOfRows")
+		w.Write(page("150", row))
+	}))
+	defer srv.Close()
+	if err := testClient(srv.URL, 1000).Ping(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if rows != "1" {
+		t.Fatalf("ping asked for %s rows, want 1", rows)
+	}
+}
+
+func TestPingBadKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(keyError))
+	}))
+	defer srv.Close()
+	err := testClient(srv.URL, 1000).Ping(context.Background())
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != "30" {
+		t.Fatalf("want APIError 30, got %v", err)
+	}
+}

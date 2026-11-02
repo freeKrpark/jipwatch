@@ -5,3 +5,11 @@
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
+
+export function HasAPIKey() {
+  return window['go']['main']['App']['HasAPIKey']();
+}
+
+export function SaveAPIKey(arg1) {
+  return window['go']['main']['App']['SaveAPIKey'](arg1);
+}

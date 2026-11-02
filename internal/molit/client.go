@@ -31,7 +31,7 @@ func NewClient(key string) *Client {
 func (c *Client) Month(ctx context.Context, sggCd, ym string) ([]Trade, error) {
 	var all []Trade
 	for page := 1; ; page++ {
-		trades, total, err := c.page(ctx, sggCd, ym, page)
+		trades, total, err := c.page(ctx, sggCd, ym, page, c.PageSize)
 		if err != nil {
 			return nil, fmt.Errorf("%s %s page %d: %w", sggCd, ym, page, err)
 		}
@@ -46,13 +46,18 @@ func (c *Client) Month(ctx context.Context, sggCd, ym string) ([]Trade, error) {
 	}
 }
 
-func (c *Client) page(ctx context.Context, sggCd, ym string, page int) ([]Trade, int, error) {
+func (c *Client) Ping(ctx context.Context) error {
+	_, _, err := c.page(ctx, "11110", "202301", 1, 1)
+	return err
+}
+
+func (c *Client) page(ctx context.Context, sggCd, ym string, page, rows int) ([]Trade, int, error) {
 	q := url.Values{
 		"serviceKey": {c.Key},
 		"LAWD_CD":    {sggCd},
 		"DEAL_YMD":   {ym},
 		"pageNo":     {strconv.Itoa(page)},
-		"numOfRows":  {strconv.Itoa(c.PageSize)},
+		"numOfRows":  {strconv.Itoa(rows)},
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Endpoint+"?"+q.Encode(), nil)
 	if err != nil {
