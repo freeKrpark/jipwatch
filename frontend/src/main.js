@@ -1,5 +1,6 @@
+import Chart from 'chart.js/auto';
 import {
-    ComplexHistory, ComplexTrades, Coverage, DefaultMonth, Districts, HasAPIKey, IsWatched, Month,
+    ComplexAnalysis, ComplexTrades, Coverage, DefaultMonth, Districts, HasAPIKey, IsWatched, Month,
     RefreshMonth, SaveAPIKey, SyncWatched, Unwatch, Watch, Watchlist,
 } from '../wailsjs/go/main/App';
 import {EventsOn} from '../wailsjs/runtime/runtime';
@@ -57,31 +58,101 @@ const gu = (code) => (districts.find((d) => d.code === code) || {name: code}).na
 // for; older sales have no 등기일 at all, so blank says nothing about them.
 const registeredSince = '2023-01-01';
 
-// flags lists why a sale stands out: canceled, sold without a broker, or
-// not yet registered.
-function flags(t) {
+// reasonLabels names why a sale is left out of the price analysis.
+const reasonLabels = {canceled: '해제', direct: '직거래', low_floor: '1~2층'};
+
+// flags lists why a sale stands out: canceled, sold without a broker, low
+// floor, or not yet registered.
+function flags({trade: t, reason}) {
     return [
         t.canceled && h('span', {class: 'flag warn', title: `해제일 ${t.canceledOn || ''}`},
             t.canceledOn ? `해제 ${t.canceledOn.slice(5)}` : '해제'),
         t.direct && h('span', {class: 'flag warn'}, '직거래'),
+        reason === 'low_floor' && h('span', {class: 'flag'}, '1~2층'),
         !t.canceled && !t.registeredOn && t.date >= registeredSince && h('span', {class: 'flag'}, '미등기'),
     ];
 }
 
-function tradeTable(trades) {
-    const rows = trades.map((t) => h('tr', {class: t.canceled || t.direct ? 'dim' : false},
-        h('td', {}, t.date),
-        h('td', {class: 'num'}, t.area.toFixed(2)),
-        h('td', {class: 'num'}, String(t.floor)),
-        h('td', {class: 'num'}, eok(t.price)),
-        h('td', {class: 'wrap'}, flags(t)),
-    ));
+// asRows marks sales for tradeTable when no unit type was analysed: only
+// canceled and direct sales are set apart.
+const asRows = (trades) => trades.map((t) => ({trade: t, reason: t.canceled ? 'canceled' : t.direct ? 'direct' : ''}));
+
+// tradeTable lists sales; rows left out of the analysis are dimmed.
+function tradeTable(rows) {
     return h('div', {class: 'table'}, h('table', {},
         h('thead', {}, h('tr', {},
             h('th', {}, '계약일'), h('th', {class: 'num'}, '전용㎡'), h('th', {class: 'num'}, '층'),
             h('th', {class: 'num'}, '금액'), h('th', {}, '표시'))),
-        h('tbody', {}, rows),
+        h('tbody', {}, rows.map((r) => h('tr', {class: r.reason ? 'dim' : false},
+            h('td', {}, r.trade.date),
+            h('td', {class: 'num'}, r.trade.area.toFixed(2)),
+            h('td', {class: 'num'}, String(r.trade.floor)),
+            h('td', {class: 'num'}, eok(r.trade.price)),
+            h('td', {class: 'wrap'}, flags(r)),
+        ))),
     ));
+}
+
+// --- chart -------------------------------------------------------------------
+
+let chart = null;
+
+// drawChart plots one unit type's sales over time: sales the analysis uses
+// in the accent colour, direct and low-floor sales in grey. Canceled sales
+// are left off; most are re-reported and would show twice.
+function drawChart(canvas, rows) {
+    const css = getComputedStyle(document.documentElement);
+    const color = (name) => css.getPropertyValue(name).trim();
+    const point = (r) => ({x: Date.parse(r.trade.date), y: r.trade.price / 10000, row: r});
+    const used = rows.filter((r) => !r.reason).map(point);
+    const left = rows.filter((r) => r.reason && r.reason !== 'canceled').map(point);
+    const all = used.concat(left);
+    const years = [];
+    if (all.length) {
+        const first = new Date(Math.min(...all.map((p) => p.x))).getUTCFullYear();
+        const last = new Date(Math.max(...all.map((p) => p.x))).getUTCFullYear();
+        for (let y = first; y <= last + 1; y++) years.push(Date.UTC(y, 0, 1));
+    }
+
+    if (chart) chart.destroy();
+    chart = new Chart(canvas, {
+        type: 'scatter',
+        data: {
+            datasets: [
+                {label: '분석에 쓰는 거래', data: used, backgroundColor: color('--accent'), pointRadius: 3.5},
+                {label: '제외 (직거래·1~2층)', data: left, backgroundColor: color('--muted'), pointRadius: 3,
+                    pointStyle: 'rectRot'},
+            ],
+        },
+        options: {
+            animation: false,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    type: 'linear', min: years[0], max: years[years.length - 1],
+                    afterBuildTicks: (axis) => { axis.ticks = years.map((value) => ({value})); },
+                    ticks: {color: color('--muted'), callback: (v) => new Date(v).getUTCFullYear()},
+                    grid: {color: color('--line')},
+                },
+                y: {
+                    ticks: {color: color('--muted'), callback: (v) => `${v}억`},
+                    grid: {color: color('--line')},
+                },
+            },
+            plugins: {
+                legend: {labels: {color: color('--muted'), usePointStyle: true}},
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => {
+                            const {trade: t, reason} = ctx.raw.row;
+                            const why = reason ? ` · ${reasonLabels[reason]}` : '';
+                            return `${t.date} · ${eok(t.price)} · ${t.floor}층${why}`;
+                        },
+                    },
+                },
+            },
+        },
+    });
 }
 
 // --- sync ------------------------------------------------------------------
@@ -213,28 +284,40 @@ async function showHome() {
     }
 }
 
-// showHistory lists every saved sale of a watched complex, newest first,
-// and how much of its district's history is saved.
-async function showHistory(c) {
+// showHistory shows one unit type of a watched complex: its sales on a
+// chart and in a table, newest first, and how much history is saved. With
+// area 0 the type with the most sales is shown.
+async function showHistory(c, area = 0) {
     const body = h('div', {}, h('p', {class: 'sub'}, '불러오는 중…'));
     show('home',
         h('p', {}, h('button', {class: 'link', onclick: showHome}, '← 관심 단지')),
-        h('div', {class: 'title'}, h('h1', {}, c.aptNm), watchButton(c, true, () => showHistory(c))),
+        h('div', {class: 'title'}, h('h1', {}, c.aptNm), watchButton(c, true, () => showHistory(c, area))),
         body,
     );
     try {
-        const [history, cov] = await Promise.all([ComplexHistory(c.sggCd, c.aptSeq), Coverage(c.sggCd)]);
-        const trades = history.slice().reverse();
-        const live = trades.filter((t) => !t.canceled).length;
+        const [a, cov] = await Promise.all([ComplexAnalysis(c.sggCd, c.aptSeq, area), Coverage(c.sggCd)]);
         const complete = cov.fetched >= cov.total;
-        body.replaceChildren(
-            h('p', {class: 'sub'}, `${gu(c.sggCd)} ${c.umdNm} · 저장된 거래 ${live}건 (해제 ${trades.length - live}건 별도)`),
+        const used = a.trades.filter((r) => !r.reason).length;
+        const canvas = h('canvas');
+        // replaceChildren does not skip false like h does, so build in h.
+        body.replaceChildren(h('div', {},
+            h('p', {class: 'sub'}, `${gu(c.sggCd)} ${c.umdNm}`),
             h('p', {class: complete ? 'status' : 'notice'},
                 `${monthLabel(cov.from)}부터 ${cov.total}개월 중 ${cov.fetched}개월 받음`,
                 !complete && ' · 나머지는 받는 중이거나 중간에 멈췄어요. ',
-                !complete && h('button', {class: 'link', onclick: () => sync().then(() => showHistory(c))}, '이어 받기')),
-            trades.length ? tradeTable(trades) : h('p', {}, '저장된 거래가 아직 없어요.'),
-        );
+                !complete && h('button', {class: 'link', onclick: () => sync().then(() => showHistory(c, area))}, '이어 받기')),
+            a.types.length > 1 && h('div', {class: 'types'}, a.types.map((t) => h('button', {
+                class: t.area === a.area ? 'type active' : 'type',
+                onclick: () => showHistory(c, t.area),
+            }, `${t.area}㎡ · ${t.sales}건`))),
+            a.trades.length === 0 && h('p', {}, '저장된 거래가 아직 없어요.'),
+            a.trades.length > 0 && h('div', {},
+                h('p', {class: 'sub'},
+                    `전용 ${a.area}㎡ · 분석에 쓰는 거래 ${used}건 · 제외 ${a.trades.length - used}건 (해제·직거래·1~2층)`),
+                h('div', {class: 'chart'}, canvas),
+                tradeTable(a.trades.slice().reverse())),
+        ));
+        if (a.trades.length) drawChart(canvas, a.trades);
     } catch (err) {
         body.replaceChildren(h('p', {class: 'error'}, errorText(err)));
     }
@@ -321,7 +404,7 @@ async function showComplex(c) {
         title.append(watchButton(c, watched, () => {}));
         body.replaceChildren(
             h('p', {class: 'sub'}, `${gu(query.sgg)} ${c.umdNm} · ${monthLabel(query.month)} 거래 ${trades.length}건`),
-            tradeTable(trades),
+            tradeTable(asRows(trades)),
         );
     } catch (err) {
         body.replaceChildren(h('p', {class: 'error'}, errorText(err)));

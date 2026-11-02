@@ -58,4 +58,8 @@ tr.dim td { color: var(--muted); }
 .flag.warn { color: var(--warn); border-color: currentColor; }
 .status { color: var(--muted); font-size: 13px; margin: -12px 0 16px; }
 .notice { padding: 10px 12px; border: 1px solid var(--accent); border-radius: 6px; }
+.types { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
+.types .type { background: transparent; border-color: var(--line); color: var(--muted); font-size: 13px; padding: 4px 10px; }
+.types .type.active { color: var(--fg); border-color: var(--fg); }
+.chart { position: relative; height: 320px; margin: 0 0 20px; }
 .error { padding: 10px 12px; border: 1px solid var(--warn); border-radius: 6px; color: var(--warn); }

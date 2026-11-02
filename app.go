@@ -267,3 +267,11 @@ func (a *App) Coverage(sgg string) (Coverage, error) {
 	}
 	return coverage(fetched, time.Now().In(kst)), nil
 }
+
+func (a *App) ComplexAnalysis(sgg, aptSeq string, area int) (Analysis, error) {
+	history, err := a.store.ComplexHistory(a.ctx, sgg, aptSeq)
+	if err != nil {
+		return Analysis{}, err
+	}
+	return analyse(history, area), nil
+}
