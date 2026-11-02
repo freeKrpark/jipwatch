@@ -244,10 +244,10 @@ func (a *App) SyncWatched() (SyncResult, error) {
 
 	var r SyncResult
 	for i, j := range jobs {
-		a.emit("sync", SyncProgress{Done: i, Total: len(jobs), Label: j.sgg + " " + ymLabel(j.ym)})
+		a.emit("sync", SyncProgress{Done: i, Total: len(jobs), Label: districtName(j.sgg) + " " + ymLabel(j.ym)})
 		ch, err := a.fetch(c, j.sgg, j.ym)
 		if err != nil {
-			r.Error = fmt.Sprintf("%s %s에서 멈췄어요: %v", j.sgg, ymLabel(j.ym), err)
+			r.Error = fmt.Sprintf("%s %s에서 멈췄어요: %v", districtName(j.sgg), ymLabel(j.ym), err)
 			break
 		}
 		r.Months++
@@ -258,4 +258,12 @@ func (a *App) SyncWatched() (SyncResult, error) {
 	}
 	a.emit("sync", SyncProgress{Done: r.Months, Total: len(jobs)})
 	return r, nil
+}
+
+func (a *App) Coverage(sgg string) (Coverage, error) {
+	fetched, err := a.store.Fetched(a.ctx, sgg)
+	if err != nil {
+		return Coverage{}, err
+	}
+	return coverage(fetched, time.Now().In(kst)), nil
 }

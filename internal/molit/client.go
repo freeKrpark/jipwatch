@@ -2,6 +2,7 @@ package molit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -74,6 +75,10 @@ func (c *Client) page(ctx context.Context, sggCd, ym string, page, rows int) ([]
 		return nil, 0, err
 	}
 	if resp.StatusCode != http.StatusOK {
+		var apiErr *APIError
+		if _, _, err := Parse(body); errors.As(err, &apiErr) {
+			return nil, 0, apiErr
+		}
 		return nil, 0, fmt.Errorf("HTTP %d: %.120q", resp.StatusCode, body)
 	}
 	return Parse(body)

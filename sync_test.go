@@ -7,10 +7,16 @@ import (
 	"github.com/freekrpark/jipwatch/internal/molit"
 )
 
+// months counts the months from historyFrom through now's month.
+func months(now time.Time) int {
+	start, _ := time.Parse("200601", historyFrom)
+	return (now.Year()-start.Year())*12 + int(now.Month()-start.Month()) + 1
+}
+
 func TestSyncPlanFirstTime(t *testing.T) {
-	plan := syncPlan(map[string]string{}, time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC))
-	// 2020-01 through 2026-11.
-	if len(plan) != 6*12+11 || plan[0] != "202001" || plan[len(plan)-1] != "202611" {
+	now := time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)
+	plan := syncPlan(map[string]string{}, now)
+	if len(plan) != months(now) || plan[0] != "202611" || plan[len(plan)-1] != historyFrom {
 		t.Fatalf("%d months, %s..%s", len(plan), plan[0], plan[len(plan)-1])
 	}
 }
@@ -24,7 +30,7 @@ func TestSyncPlanRefetchesOnlyRecentAndMissing(t *testing.T) {
 	delete(fetched, "202304") // a month that failed last time
 
 	got := syncPlan(fetched, now)
-	want := []string{"202304", "202609", "202610", "202611"}
+	want := []string{"202611", "202610", "202609", "202304"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -32,6 +38,14 @@ func TestSyncPlanRefetchesOnlyRecentAndMissing(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("got %v, want %v", got, want)
 		}
+	}
+}
+
+func TestCoverage(t *testing.T) {
+	now := time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)
+	c := coverage(map[string]string{"202611": "x", "202304": "x", "199912": "before historyFrom"}, now)
+	if c.Fetched != 2 || c.Total != months(now) || c.From != historyFrom {
+		t.Fatalf("%+v", c)
 	}
 }
 

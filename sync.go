@@ -16,7 +16,7 @@ func syncPlan(fetched map[string]string, now time.Time) []string {
 	end := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 	recent := end.AddDate(0, -(recentMonths - 1), 0)
 	var plan []string
-	for m := start; !m.After(end); m = m.AddDate(0, 1, 0) {
+	for m := end; !m.Before(start); m = m.AddDate(0, -1, 0) {
 		ym := m.Format("200601")
 		if _, ok := fetched[ym]; !ok || !m.Before(recent) {
 			plan = append(plan, ym)
@@ -25,13 +25,30 @@ func syncPlan(fetched map[string]string, now time.Time) []string {
 	return plan
 }
 
+type Coverage struct {
+	From    string `json:"from"`
+	Fetched int    `json:"fetched"`
+	Total   int    `json:"total"`
+}
+
+func coverage(fetched map[string]string, now time.Time) Coverage {
+	all := syncPlan(map[string]string{}, now)
+	c := Coverage{From: historyFrom, Total: len(all)}
+	for _, ym := range all {
+		if _, ok := fetched[ym]; ok {
+			c.Fetched++
+		}
+	}
+	return c
+}
+
 type WatchItem struct {
 	AptSeq string       `json:"aptSeq"`
 	AptNm  string       `json:"aptNm"`
 	SggCd  string       `json:"sggCd"`
 	UmdNm  string       `json:"umdNm"`
-	Sales  int          `json:"sales"`  // saved sales, canceled ones excluded
-	Latest *molit.Trade `json:"latest"` // latest sale not canceled; null if none
+	Sales  int          `json:"sales"`
+	Latest *molit.Trade `json:"latest"`
 }
 
 func watchItem(aptSeq, aptNm, sgg, umd string, history []molit.Trade) WatchItem {

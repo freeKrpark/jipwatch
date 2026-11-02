@@ -10,8 +10,16 @@ export function ComplexTrades(arg1, arg2, arg3) {
   return window['go']['main']['App']['ComplexTrades'](arg1, arg2, arg3);
 }
 
+export function Coverage(arg1) {
+  return window['go']['main']['App']['Coverage'](arg1);
+}
+
 export function DefaultMonth() {
   return window['go']['main']['App']['DefaultMonth']();
+}
+
+export function Districts() {
+  return window['go']['main']['App']['Districts']();
 }
 
 export function HasAPIKey() {

@@ -20,6 +20,36 @@ export namespace main {
 	        this.sales = source["sales"];
 	    }
 	}
+	export class Coverage {
+	    from: string;
+	    fetched: number;
+	    total: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Coverage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.from = source["from"];
+	        this.fetched = source["fetched"];
+	        this.total = source["total"];
+	    }
+	}
+	export class District {
+	    code: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new District(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.name = source["name"];
+	    }
+	}
 	export class MonthSummary {
 	    total: number;
 	    canceled: number;

@@ -1,5 +1,5 @@
 import {
-    ComplexHistory, ComplexTrades, DefaultMonth, HasAPIKey, IsWatched, Month,
+    ComplexHistory, ComplexTrades, Coverage, DefaultMonth, Districts, HasAPIKey, IsWatched, Month,
     RefreshMonth, SaveAPIKey, SyncWatched, Unwatch, Watch, Watchlist,
 } from '../wailsjs/go/main/App';
 import {EventsOn} from '../wailsjs/runtime/runtime';
@@ -49,6 +49,14 @@ async function busy(button, label, work) {
 const eok = (manwon) => (manwon / 10000).toFixed(2) + '억';
 const monthLabel = (ym) => `${ym.slice(0, 4)}년 ${Number(ym.slice(4))}월`;
 
+// districts is filled from Go at start; gu turns a district code into its name.
+let districts = [];
+const gu = (code) => (districts.find((d) => d.code === code) || {name: code}).name;
+
+// registeredSince is the first contract date the API reports registration
+// for; older sales have no 등기일 at all, so blank says nothing about them.
+const registeredSince = '2023-01-01';
+
 // flags lists why a sale stands out: canceled, sold without a broker, or
 // not yet registered.
 function flags(t) {
@@ -56,7 +64,7 @@ function flags(t) {
         t.canceled && h('span', {class: 'flag warn', title: `해제일 ${t.canceledOn || ''}`},
             t.canceledOn ? `해제 ${t.canceledOn.slice(5)}` : '해제'),
         t.direct && h('span', {class: 'flag warn'}, '직거래'),
-        !t.canceled && !t.registeredOn && h('span', {class: 'flag'}, '미등기'),
+        !t.canceled && !t.registeredOn && t.date >= registeredSince && h('span', {class: 'flag'}, '미등기'),
     ];
 }
 
@@ -182,8 +190,8 @@ async function showHome() {
         if (items.length === 0) {
             body.replaceChildren(
                 h('p', {}, '아직 관심 단지가 없어요.'),
-                h('p', {class: 'sub'}, '“거래 찾기”에서 구 코드와 월로 단지를 찾은 뒤, 단지 화면에서 관심 단지로 추가하세요. ' +
-                    '추가하면 그 구의 2020년 1월부터 거래를 모두 받아와요.'),
+                h('p', {class: 'sub'}, '“거래 찾기”에서 구와 월로 단지를 찾은 뒤, 단지 화면에서 관심 단지로 추가하세요. ' +
+                    '추가하면 그 구의 지난 거래를 모두 받아와요.'),
             );
             return;
         }
@@ -193,7 +201,7 @@ async function showHome() {
             h('tbody', {}, items.map((w) => h('tr', {},
                 h('td', {class: 'wrap'},
                     h('a', {onclick: () => showHistory(w)}, w.aptNm),
-                    h('span', {class: 'small'}, `${w.umdNm} · ${w.sggCd}`)),
+                    h('span', {class: 'small'}, `${gu(w.sggCd)} ${w.umdNm}`)),
                 h('td', {class: 'num'}, String(w.sales)),
                 h('td', {}, w.latest
                     ? `${w.latest.date} · ${eok(w.latest.price)} · ${w.latest.floor}층`
@@ -205,7 +213,8 @@ async function showHome() {
     }
 }
 
-// showHistory lists every saved sale of a watched complex, newest first.
+// showHistory lists every saved sale of a watched complex, newest first,
+// and how much of its district's history is saved.
 async function showHistory(c) {
     const body = h('div', {}, h('p', {class: 'sub'}, '불러오는 중…'));
     show('home',
@@ -214,11 +223,17 @@ async function showHistory(c) {
         body,
     );
     try {
-        const trades = (await ComplexHistory(c.sggCd, c.aptSeq)).slice().reverse();
+        const [history, cov] = await Promise.all([ComplexHistory(c.sggCd, c.aptSeq), Coverage(c.sggCd)]);
+        const trades = history.slice().reverse();
         const live = trades.filter((t) => !t.canceled).length;
+        const complete = cov.fetched >= cov.total;
         body.replaceChildren(
-            h('p', {class: 'sub'}, `${c.umdNm} · ${c.aptSeq} · 저장된 거래 ${live}건 (해제 ${trades.length - live}건 별도)`),
-            trades.length ? tradeTable(trades) : h('p', {}, '저장된 거래가 아직 없어요. 받는 중이면 잠시 후 다시 열어 주세요.'),
+            h('p', {class: 'sub'}, `${gu(c.sggCd)} ${c.umdNm} · 저장된 거래 ${live}건 (해제 ${trades.length - live}건 별도)`),
+            h('p', {class: complete ? 'status' : 'notice'},
+                `${monthLabel(cov.from)}부터 ${cov.total}개월 중 ${cov.fetched}개월 받음`,
+                !complete && ' · 나머지는 받는 중이거나 중간에 멈췄어요. ',
+                !complete && h('button', {class: 'link', onclick: () => sync().then(() => showHistory(c))}, '이어 받기')),
+            trades.length ? tradeTable(trades) : h('p', {}, '저장된 거래가 아직 없어요.'),
         );
     } catch (err) {
         body.replaceChildren(h('p', {class: 'error'}, errorText(err)));
@@ -231,7 +246,9 @@ let query = {sgg: '', month: ''};
 
 async function showSearch() {
     if (!query.month) query.month = await DefaultMonth();
-    const sgg = h('input', {inputmode: 'numeric', maxlength: 5, placeholder: '11110', value: query.sgg, required: true});
+    const sgg = h('select', {required: true},
+        h('option', {value: ''}, '구 선택'),
+        districts.map((d) => h('option', {value: d.code, selected: d.code === query.sgg}, d.name)));
     const month = h('input', {inputmode: 'numeric', maxlength: 6, value: query.month, required: true});
     const go = h('button', {type: 'submit'}, '보기');
     const result = h('div');
@@ -241,7 +258,7 @@ async function showSearch() {
             query = {sgg: sgg.value.trim(), month: month.value.trim()};
             await loadMonth(go, result);
         },
-    }, h('label', {}, '구 코드', sgg), h('label', {}, '계약 월', month), go);
+    }, h('label', {}, '구', sgg), h('label', {}, '계약 월', month), go);
 
     show('search', h('h1', {}, '거래 찾기'), form, result);
     if (query.sgg) await loadMonth(go, result);
@@ -263,7 +280,7 @@ async function loadMonth(button, result, refresh = false) {
 
 function renderMonth(s, refresh) {
     const head = h('p', {class: 'sub'},
-        `${query.sgg} · ${monthLabel(query.month)} · 거래 ${s.total}건 · 해제 ${s.canceled}건 · 직거래 ${s.direct}건`);
+        `${gu(query.sgg)} · ${monthLabel(query.month)} · 거래 ${s.total}건 · 해제 ${s.canceled}건 · 직거래 ${s.direct}건`);
     const status = h('p', {class: 'status'},
         `${s.fetchedAt}에 받은 데이터 · `,
         h('button', {class: 'link', onclick: refresh}, '새로 받기'));
@@ -292,7 +309,7 @@ async function showComplex(c) {
     const body = h('div', {}, h('p', {class: 'sub'}, '불러오는 중…'));
     const title = h('div', {class: 'title'}, h('h1', {}, c.aptNm));
     show('search',
-        h('p', {}, h('button', {class: 'link', onclick: showSearch}, `← ${query.sgg} · ${monthLabel(query.month)}`)),
+        h('p', {}, h('button', {class: 'link', onclick: showSearch}, `← ${gu(query.sgg)} · ${monthLabel(query.month)}`)),
         title,
         body,
     );
@@ -303,7 +320,7 @@ async function showComplex(c) {
         ]);
         title.append(watchButton(c, watched, () => {}));
         body.replaceChildren(
-            h('p', {class: 'sub'}, `${c.aptSeq} · ${monthLabel(query.month)} 거래 ${trades.length}건`),
+            h('p', {class: 'sub'}, `${gu(query.sgg)} ${c.umdNm} · ${monthLabel(query.month)} 거래 ${trades.length}건`),
             tradeTable(trades),
         );
     } catch (err) {
@@ -319,8 +336,9 @@ nav.addEventListener('click', (e) => {
     if (page) pages[page]();
 });
 
-HasAPIKey()
-    .then((has) => {
+Promise.all([HasAPIKey(), Districts()])
+    .then(([has, list]) => {
+        districts = list;
         if (!has) return showSetup(false);
         showHome();
         // Opening the app is when it catches up: the last few months again,

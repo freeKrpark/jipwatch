@@ -7,7 +7,11 @@ export function ComplexHistory(arg1:string,arg2:string):Promise<Array<molit.Trad
 
 export function ComplexTrades(arg1:string,arg2:string,arg3:string):Promise<Array<molit.Trade>>;
 
+export function Coverage(arg1:string):Promise<main.Coverage>;
+
 export function DefaultMonth():Promise<string>;
+
+export function Districts():Promise<Array<main.District>>;
 
 export function HasAPIKey():Promise<boolean>;
 

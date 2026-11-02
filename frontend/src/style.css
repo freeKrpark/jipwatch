@@ -33,7 +33,7 @@ h1 { font-size: 22px; margin: 24px 0 4px; }
 
 form { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; margin-bottom: 20px; }
 label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
-input, button {
+input, select, button {
     font: inherit; padding: 8px 10px; border: 1px solid var(--line);
     border-radius: 6px; background: transparent; color: var(--fg);
 }
