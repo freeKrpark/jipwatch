@@ -3,6 +3,7 @@ package main
 import (
 	"math"
 	"sort"
+	"time"
 
 	"github.com/freekrpark/jipwatch/internal/molit"
 )
@@ -43,9 +44,12 @@ type Analysis struct {
 	Types  []TypeCount  `json:"types"`
 	Area   int          `json:"area"`
 	Trades []Classified `json:"trades"`
+
+	Trend   []TrendPoint `json:"trend"`
+	Summary Summary      `json:"summary"`
 }
 
-func analyse(history []molit.Trade, area int) Analysis {
+func analyse(history []molit.Trade, area int, now time.Time) Analysis {
 	counts := map[int]int{}
 	for _, t := range history {
 		n := counts[unitType(t.Area)]
@@ -73,5 +77,7 @@ func analyse(history []molit.Trade, area int) Analysis {
 			a.Trades = append(a.Trades, Classified{Trade: t, Reason: reject(t)})
 		}
 	}
+	a.Trend = trend(a.Trades)
+	a.Summary = summarise(a.Trades, a.Trend, now)
 	return a
 }

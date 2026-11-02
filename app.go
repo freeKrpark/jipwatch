@@ -273,5 +273,5 @@ func (a *App) ComplexAnalysis(sgg, aptSeq string, area int) (Analysis, error) {
 	if err != nil {
 		return Analysis{}, err
 	}
-	return analyse(history, area), nil
+	return analyse(history, area, time.Now().In(kst)), nil
 }

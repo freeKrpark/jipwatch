@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	"github.com/freekrpark/jipwatch/internal/molit"
 )
@@ -13,6 +14,8 @@ func tr(date string, area float64, floor, price int, mods ...func(*molit.Trade))
 	}
 	return t
 }
+
+var testNow = time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)
 
 func direct(t *molit.Trade)       { t.Direct = true }
 func canceledSale(t *molit.Trade) { t.Canceled = true }
@@ -39,7 +42,7 @@ func TestAnalysePicksBusiestTypeAndKeepsExcluded(t *testing.T) {
 		tr("2023-04-20", 84.99, 9, 99000),
 		tr("2023-05-01", 114.98, 6, 120000),
 	}
-	a := analyse(history, 0)
+	a := analyse(history, 0, testNow)
 	if a.Area != 84 {
 		t.Fatalf("area %d, want 84 (two normal sales)", a.Area)
 	}
@@ -50,16 +53,16 @@ func TestAnalysePicksBusiestTypeAndKeepsExcluded(t *testing.T) {
 		t.Fatalf("trades %+v", a.Trades)
 	}
 
-	if a := analyse(history, 59); a.Area != 59 || len(a.Trades) != 1 {
+	if a := analyse(history, 59, testNow); a.Area != 59 || len(a.Trades) != 1 {
 		t.Fatalf("asked for 59: %+v", a)
 	}
-	if a := analyse(history, 77); a.Area != 84 {
+	if a := analyse(history, 77, testNow); a.Area != 84 {
 		t.Fatalf("unknown type should fall back to the busiest, got %d", a.Area)
 	}
 }
 
 func TestAnalyseEmpty(t *testing.T) {
-	a := analyse(nil, 0)
+	a := analyse(nil, 0, testNow)
 	if a.Types == nil || a.Trades == nil || a.Area != 0 {
 		t.Fatalf("%+v", a)
 	}

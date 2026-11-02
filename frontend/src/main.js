@@ -97,10 +97,17 @@ function tradeTable(rows) {
 
 let chart = null;
 
+const monthMs = (month) => Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 15);
+const markLabel = (m) => `${eok(m.price)} (${m.month.replace('-', '.')})`;
+const signed = (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)}%`;
+
 // drawChart plots one unit type's sales over time: sales the analysis uses
-// in the accent colour, direct and low-floor sales in grey. Canceled sales
-// are left off; most are re-reported and would show twice.
-function drawChart(canvas, rows) {
+// in the accent colour, direct and low-floor sales in grey, the rolling
+// median as a line, and the peak, trough and recent median across. Canceled
+// sales are left off; most are re-reported and would show twice.
+function drawChart(canvas, a) {
+    const rows = a.trades;
+    const s = a.summary;
     const css = getComputedStyle(document.documentElement);
     const color = (name) => css.getPropertyValue(name).trim();
     const point = (r) => ({x: Date.parse(r.trade.date), y: r.trade.price / 10000, row: r});
@@ -113,17 +120,27 @@ function drawChart(canvas, rows) {
         const last = new Date(Math.max(...all.map((p) => p.x))).getUTCFullYear();
         for (let y = first; y <= last + 1; y++) years.push(Date.UTC(y, 0, 1));
     }
+    const across = (label, price, colour) => ({
+        type: 'line', label, borderColor: colour, borderWidth: 1, borderDash: [6, 4], pointRadius: 0,
+        data: [{x: years[0], y: price / 10000}, {x: years[years.length - 1], y: price / 10000}],
+    });
+    const datasets = [
+        {label: '분석에 쓰는 거래', data: used, backgroundColor: color('--accent'), pointRadius: 3.5},
+        {label: '제외 (직거래·1~2층)', data: left, backgroundColor: color('--muted'), pointRadius: 3, pointStyle: 'rectRot'},
+        {
+            type: 'line', label: '추세 (앞뒤 3개월 중간값)', borderColor: color('--fg'), borderWidth: 2,
+            pointRadius: 0, tension: 0.3, spanGaps: false,
+            data: a.trend.map((p) => ({x: monthMs(p.month), y: p.median ? p.median / 10000 : null, trend: p})),
+        },
+    ];
+    if (s.peak) datasets.push(across(`고점 ${markLabel(s.peak)}`, s.peak.price, color('--muted')));
+    if (s.trough) datasets.push(across(`바닥 ${markLabel(s.trough)}`, s.trough.price, color('--warn')));
+    if (s.recentMedian) datasets.push(across(`최근 ${eok(s.recentMedian)}`, s.recentMedian, color('--accent')));
 
     if (chart) chart.destroy();
     chart = new Chart(canvas, {
         type: 'scatter',
-        data: {
-            datasets: [
-                {label: '분석에 쓰는 거래', data: used, backgroundColor: color('--accent'), pointRadius: 3.5},
-                {label: '제외 (직거래·1~2층)', data: left, backgroundColor: color('--muted'), pointRadius: 3,
-                    pointStyle: 'rectRot'},
-            ],
-        },
+        data: {datasets},
         options: {
             animation: false,
             maintainAspectRatio: false,
@@ -140,11 +157,14 @@ function drawChart(canvas, rows) {
                 },
             },
             plugins: {
-                legend: {labels: {color: color('--muted'), usePointStyle: true}},
+                legend: {labels: {color: color('--muted'), usePointStyle: true, boxHeight: 6}},
                 tooltip: {
                     callbacks: {
                         label: (ctx) => {
-                            const {trade: t, reason} = ctx.raw.row;
+                            const raw = ctx.raw;
+                            if (raw.trend) return `${raw.trend.month} 추세 ${eok(raw.trend.median)} (${raw.trend.sales}건)`;
+                            if (!raw.row) return ctx.dataset.label;
+                            const {trade: t, reason} = raw.row;
                             const why = reason ? ` · ${reasonLabels[reason]}` : '';
                             return `${t.date} · ${eok(t.price)} · ${t.floor}층${why}`;
                         },
@@ -155,6 +175,21 @@ function drawChart(canvas, rows) {
     });
 }
 
+// summaryCards leads the complex screen: where recent prices sit against
+// the peak and the trough of the trend line.
+function summaryCards(s) {
+    const card = (label, value, note) => h('div', {class: 'card'},
+        h('span', {class: 'small'}, label), h('strong', {}, value), note && h('span', {class: 'small'}, note));
+    return h('div', {class: 'cards'},
+        card('최근 6개월 중간값', s.recentMedian ? eok(s.recentMedian) : '거래 없음',
+            `${s.recentSales}건 · ${s.recentFrom} 이후`),
+        card('고점', s.peak ? eok(s.peak.price) : '—', s.peak && monthLabel(s.peak.month.replace('-', ''))),
+        card('하락기 바닥', s.trough ? eok(s.trough.price) : '—', s.trough && monthLabel(s.trough.month.replace('-', ''))),
+        card('지금 위치',
+            s.recentMedian && s.trough ? `바닥 ${signed(s.fromTrough)}` : '—',
+            s.recentMedian && s.peak ? `고점 ${signed(s.fromPeak)}` : null),
+    );
+}
 // --- sync ------------------------------------------------------------------
 
 // The sync bar sits under the header on every page while watched districts
@@ -314,10 +349,11 @@ async function showHistory(c, area = 0) {
             a.trades.length > 0 && h('div', {},
                 h('p', {class: 'sub'},
                     `전용 ${a.area}㎡ · 분석에 쓰는 거래 ${used}건 · 제외 ${a.trades.length - used}건 (해제·직거래·1~2층)`),
+                summaryCards(a.summary),
                 h('div', {class: 'chart'}, canvas),
                 tradeTable(a.trades.slice().reverse())),
         ));
-        if (a.trades.length) drawChart(canvas, a.trades);
+        if (a.trades.length) drawChart(canvas, a);
     } catch (err) {
         body.replaceChildren(h('p', {class: 'error'}, errorText(err)));
     }
