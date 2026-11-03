@@ -1,5 +1,79 @@
 export namespace main {
 	
+	export class RatioPoint {
+	    month: string;
+	    ratio: number;
+	    jeonse: number;
+	    sale: number;
+	    after: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new RatioPoint(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.month = source["month"];
+	        this.ratio = source["ratio"];
+	        this.jeonse = source["jeonse"];
+	        this.sale = source["sale"];
+	        this.after = source["after"];
+	    }
+	}
+	export class JeonseRatio {
+	    trend: TrendPoint[];
+	    points: RatioPoint[];
+	    usual: number;
+	    spread: number;
+	    current: number;
+	    z: number;
+	    enough: boolean;
+	    rulesFrom: string;
+	    recentJeonse: number;
+	    recentLeases: number;
+	    recentFrom: string;
+	    yield: number;
+	    yieldLeases: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new JeonseRatio(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.trend = this.convertValues(source["trend"], TrendPoint);
+	        this.points = this.convertValues(source["points"], RatioPoint);
+	        this.usual = source["usual"];
+	        this.spread = source["spread"];
+	        this.current = source["current"];
+	        this.z = source["z"];
+	        this.enough = source["enough"];
+	        this.rulesFrom = source["rulesFrom"];
+	        this.recentJeonse = source["recentJeonse"];
+	        this.recentLeases = source["recentLeases"];
+	        this.recentFrom = source["recentFrom"];
+	        this.yield = source["yield"];
+	        this.yieldLeases = source["yieldLeases"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class PremiumPoint {
 	    month: string;
 	    premium: number;
@@ -187,6 +261,7 @@ export namespace main {
 	    trend: TrendPoint[];
 	    summary: Summary;
 	    relative: Relative;
+	    jeonse: JeonseRatio;
 	
 	    static createFrom(source: any = {}) {
 	        return new Analysis(source);
@@ -200,6 +275,7 @@ export namespace main {
 	        this.trend = this.convertValues(source["trend"], TrendPoint);
 	        this.summary = this.convertValues(source["summary"], Summary);
 	        this.relative = this.convertValues(source["relative"], Relative);
+	        this.jeonse = this.convertValues(source["jeonse"], JeonseRatio);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -428,6 +504,7 @@ export namespace main {
 	}
 	
 	
+	
 	export class MonthSummary {
 	    total: number;
 	    canceled: number;
@@ -472,6 +549,7 @@ export namespace main {
 		    return a;
 		}
 	}
+	
 	
 	
 	

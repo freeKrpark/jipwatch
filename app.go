@@ -335,6 +335,11 @@ func (a *App) ComplexAnalysis(sgg, aptSeq string, area int) (Analysis, error) {
 		return Analysis{}, err
 	}
 	an.Relative = relative(an, district, now)
+	rents, err := a.store.ComplexRents(a.ctx, sgg, aptSeq)
+	if err != nil {
+		return Analysis{}, err
+	}
+	an.Jeonse = jeonse(an, rents, now)
 	return an, nil
 }
 
@@ -354,7 +359,13 @@ func (a *App) BuyRentStart(sgg, aptSeq string, area int) (BuyRentStart, error) {
 	if err != nil {
 		return BuyRentStart{}, err
 	}
-	an := analyse(history, area, time.Now().In(kst))
+	now := time.Now().In(kst)
+	an := analyse(history, area, now)
+	rents, err := a.store.ComplexRents(a.ctx, sgg, aptSeq)
+	if err != nil {
+		return BuyRentStart{}, err
+	}
+	recentJeonse := jeonse(an, rents, now).RecentJeonse
 	in := BuyRentInput{Price: an.Summary.RecentMedian, Area: an.Area,
 		LoanRate: 4.5, JeonseRate: 4.1, OppRate: 3, MaintRate: 0.5, Years: 10}
 	if last, err := a.store.Setting(a.ctx, buyRentLast); err == nil && last != "" {
@@ -368,6 +379,9 @@ func (a *App) BuyRentStart(sgg, aptSeq string, area int) (BuyRentStart, error) {
 	}
 	if saved, err := a.store.Setting(a.ctx, buyRentKey(aptSeq, an.Area)); err == nil && saved != "" {
 		json.Unmarshal([]byte(saved), &in)
+	}
+	if in.Jeonse == 0 {
+		in.Jeonse = recentJeonse
 	}
 	return BuyRentStart{Input: in, Growth: growth(an.Trend)}, nil
 }

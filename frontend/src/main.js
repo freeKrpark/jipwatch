@@ -158,6 +158,13 @@ function drawChart(canvas, a) {
             segment: {borderDash: (ctx) => (isWide(ctx.p0) || isWide(ctx.p1) ? [5, 4] : undefined)},
             data: a.trend.map((p) => ({x: monthMs(p.month), y: p.median ? p.median / 10000 : null, trend: p})),
         },
+        {
+            type: 'line', label: '전세 추세 (신규)', borderColor: color('--muted'), borderWidth: 1.5,
+            pointRadius: 0, tension: 0.3, spanGaps: false,
+            data: a.jeonse.trend.map((p) => ({
+                x: monthMs(p.month), y: p.median ? p.median / 10000 : null, trend: p, jeonse: true,
+            })),
+        },
     ];
     if (s.peak) datasets.push(across(`고점 ${markLabel(s.peak)}`, s.peak.price, color('--muted')));
     if (s.trough) datasets.push(across(`바닥 ${markLabel(s.trough)}`, s.trough.price, color('--warn')));
@@ -184,8 +191,8 @@ function drawChart(canvas, a) {
                             const raw = ctx.raw;
                             if (raw.trend) {
                                 const p = raw.trend;
-                                return `${p.month} 추세 ${eok(p.median)} (앞뒤 ${p.radius}개월 ${p.sales}건)`;
-                            }
+                                const what = raw.jeonse ? '전세' : '추세';
+                                return `${p.month} ${what} ${eok(p.median)} (앞뒤 ${p.radius}개월 ${p.sales}건)`;                            }
                             if (!raw.row) return ctx.dataset.label;
                             const {trade: t, reason} = raw.row;
                             const why = reason ? ` · ${reasonLabels[reason]}` : '';
@@ -217,6 +224,8 @@ function summaryCards(a) {
     const s = a.summary;
     const r = a.relative;
     const v = verdict(r);
+    const j = a.jeonse;
+    const jv = jeonseVerdict(j);
     const card = (label, value, note, tone = '') => h('div', {class: `card ${tone}`},
         h('span', {class: 'small'}, label), h('strong', {}, value), note && h('span', {class: 'small'}, note));
     return h('div', {class: 'cards'},
@@ -230,6 +239,9 @@ function summaryCards(a) {
         card('구 대비',
             r.current ? signed(r.current) : '—',
             r.points.length ? `평소 ${signed(r.usual)} · ${v.text}` : '비교할 거래가 없어요', v.tone),
+        card('전세 대비',
+            j.current ? `전세가율 ${j.current.toFixed(0)}%` : '—',
+            j.current && j.enough ? `평소 ${j.usual.toFixed(0)}% · ${jv.text}` : jv.text, jv.tone),
     );
 }
 
@@ -273,6 +285,118 @@ function drawPremium(canvas, r) {
         },
     }));
 }
+// --- 전세 대비 -------------------------------------------------------------------
+
+// jeonseVerdict reads the 전세 ratio's distance from its usual level, like
+// verdict does for the premium. A low ratio means the price is high for the
+// rent the home commands.
+function jeonseVerdict(j) {
+    if (!j.current) return {text: '최근 전세 거래가 없어요', tone: ''};
+    if (!j.enough) return {text: '비교할 기간이 짧아요', tone: ''};
+    if (j.z <= -1) return {text: '전세 대비 비싼 편', tone: 'hot'};
+    if (j.z >= 1) return {text: '전세 대비 싼 편', tone: 'cool'};
+    return {text: '평소 수준', tone: ''};
+}
+
+const rulesLabel = (j) => `${j.rulesFrom.slice(0, 4)}년 ${Number(j.rulesFrom.slice(5))}월`;
+
+// drawRatio plots the 전세 ratio month by month, against its usual level
+// and range from before the lending rules changed; months since then are
+// dashed, as the rules may have pushed 전세 down rather than prices up.
+function drawRatio(canvas, j) {
+    const css = getComputedStyle(document.documentElement);
+    const color = (name) => css.getPropertyValue(name).trim();
+    const years = yearTicks(j.points.map((p) => monthMs(p.month)));
+    const flat = (y) => [{x: years[0], y}, {x: years[years.length - 1], y}];
+    const pct = (v) => `${v.toFixed(1)}%`;
+    charts.push(new Chart(canvas, {
+        type: 'line',
+        data: {
+            datasets: [
+                {label: '전세가율', order: 0, borderColor: color('--fg'), borderWidth: 2, pointRadius: 0, tension: 0.3,
+                    segment: {borderDash: (ctx) => (ctx.p1.raw.after ? [5, 4] : undefined)},
+                    data: j.points.map((p) => ({x: monthMs(p.month), y: p.ratio, after: p.after, point: p}))},
+                {label: `평소 ${pct(j.usual)}`, order: 1, data: flat(j.usual), borderColor: color('--accent'),
+                    borderWidth: 1, borderDash: [6, 4], pointRadius: 0},
+                {label: '평소 범위', order: 2, data: flat(j.usual + j.spread), borderColor: 'transparent',
+                    pointRadius: 0, backgroundColor: color('--line'), fill: '+1'},
+                {label: '', order: 3, data: flat(j.usual - j.spread), borderColor: 'transparent', pointRadius: 0},
+            ],
+        },
+        options: {
+            animation: false,
+            maintainAspectRatio: false,
+            scales: {
+                x: yearAxis(years, color),
+                y: {ticks: {color: color('--muted'), callback: (v) => `${v}%`}, grid: {color: color('--line')}},
+            },
+            plugins: {
+                legend: {labels: {color: color('--muted'), boxHeight: 2, filter: (item) => item.text !== ''}},
+                tooltip: {
+                    filter: (item) => item.datasetIndex === 0,
+                    callbacks: {
+                        label: (ctx) => {
+                            const p = ctx.raw.point;
+                            return `${p.month} 전세 ${eok(p.jeonse)} ÷ 매매 ${eok(p.sale)} = ${pct(p.ratio)}`;
+                        },
+                    },
+                },
+            },
+        },
+    }));
+}
+
+// yieldLine puts the 월세 yield against a rate the reader sets, kept in
+// this browser only, since it is a matter of taste, not data.
+function yieldLine(j) {
+    if (!j.yieldLeases) return h('p', {class: 'status'}, '최근 1년 월세 거래가 없어서 임대수익률은 계산하지 못했어요.');
+    let rate = 3;
+    try {
+        rate = +(localStorage.getItem('jipwatch.compareRate') || 3);
+    } catch (e) { /* storage may be off; 3% will do */ }
+    const out = h('span');
+    const input = h('input', {type: 'number', step: 0.1, min: 0, value: rate, class: 'inline'});
+    const render = () => {
+        const r = +input.value || 0;
+        try {
+            localStorage.setItem('jipwatch.compareRate', String(r));
+        } catch (e) { /* not kept; fine */ }
+        const gap = j.yield - r;
+        out.replaceChildren(h('strong', {}, gap >= 0
+            ? `금리보다 ${gap.toFixed(1)}%p 높아요.`
+            : `금리보다 ${(-gap).toFixed(1)}%p 낮아요.`),
+        gap < 0 ? ' 그만큼은 집값이 오를 거라는 기대로 사는 가격이에요.' : ' 임대수익만으로도 이자만큼은 나와요.');
+    };
+    input.addEventListener('input', render);
+    render();
+    return h('p', {},
+        `월세로 놓으면 수익률이 연 ${j.yield.toFixed(1)}%예요 (최근 1년 월세 ${j.yieldLeases}건, 세금·비용 빼기 전). `,
+        '비교 금리 ', input, '% → ', out);
+}
+
+// jeonseSection explains the ratio and the yield under their chart, or why
+// there is nothing to show.
+function jeonseSection(j, canvas) {
+    if (!j.points.length) {
+        return h('div', {}, h('h2', {}, '전세 대비'),
+            h('p', {class: 'sub'}, '저장된 전세 거래가 없어요. 전월세를 아직 받는 중이거나, 활용신청이 반영되지 않았을 수 있어요.'));
+    }
+    const v = jeonseVerdict(j);
+    return h('div', {},
+        h('h2', {}, '전세 대비'),
+        h('p', {class: 'sub'},
+            '전세가율은 같은 평형의 신규 전세가 매매가의 몇 %인지예요. 평소보다 낮으면 사는 사람이 쓰는 가치(전세)에 비해 ' +
+            '집값이 비싸게 붙어 있다는 뜻이에요. 갱신계약은 5% 상한이 걸려서 뺐어요.'),
+        h('p', {},
+            `최근 전세가율 ${j.current ? j.current.toFixed(1) + '%' : '—'}`,
+            j.current ? ` (전세 ${eok(j.recentJeonse)} · ${j.recentLeases}건) · 평소 ${j.usual.toFixed(1)}% → ` : ' · ',
+            h('strong', {}, v.text)),
+        h('div', {class: 'chart small-chart'}, canvas),
+        h('p', {class: 'status'},
+            `점선은 ${rulesLabel(j)} 이후예요. 이때부터 전세대출 규제가 강해져서 전세가가 눌렸을 수 있어요. ` +
+            `그래서 평소 수준은 그 전 기간으로만 계산했어요.`),
+        yieldLine(j));
+}
 
 // --- buy or rent ---------------------------------------------------------------
 
@@ -307,6 +431,7 @@ function buyRentSection(c, area) {
             years: field('보유 기간 (년)', inp.years, {step: 1, hint: '취득 비용을 나눌 기간'}),
             tax: field('보유세 (만원/년)', inp.propertyTax || '', {step: 1, placeholder: '자동 추정',
                 hint: '고지서 금액을 알면 넣으세요'}),
+            jeonse: field('전세가 (억)', eokOf(inp.jeonse), {step: 0.01, hint: '기본은 최근 6개월 신규 전세 중간값'}),
         };
         const out = h('div');
         const read = () => ({
@@ -536,6 +661,7 @@ async function showHistory(c, area = 0) {
         const used = a.trades.filter((r) => !r.reason).length;
         const canvas = h('canvas');
         const premiumCanvas = h('canvas');
+        const ratioCanvas = h('canvas');
         // replaceChildren does not skip false like h does, so build in h.
         body.replaceChildren(h('div', {},
             h('p', {class: 'sub'}, `${gu(c.sggCd)} ${c.umdNm}`),
@@ -562,6 +688,7 @@ async function showHistory(c, area = 0) {
                         `${gu(c.sggCd)}의 다른 단지 전용 ${a.relative.bandMin}~${a.relative.bandMax}㎡ 거래와 비교한 값이에요. ` +
                         '구 평균엔 신축과 구축이 섞여 있어서, 숫자 자체보다 이 단지의 평소 수준과 비교해서 보세요.'),
                     h('div', {class: 'chart small-chart'}, premiumCanvas)),
+                    jeonseSection(a.jeonse, ratioCanvas),
                 buyRentSection(c, a.area),
                 h('h2', {}, '거래 내역'),
                 tradeTable(a.trades.slice().reverse())),
@@ -569,6 +696,7 @@ async function showHistory(c, area = 0) {
         clearCharts();
         if (a.trades.length) drawChart(canvas, a);
         if (a.relative.points.length) drawPremium(premiumCanvas, a.relative);
+        if (a.jeonse.points.length) drawRatio(ratioCanvas, a.jeonse);
     } catch (err) {
         body.replaceChildren(h('p', {class: 'error'}, errorText(err)));
     }

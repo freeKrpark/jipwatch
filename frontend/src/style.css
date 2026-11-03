@@ -78,5 +78,6 @@ h2 { font-size: 17px; margin: 28px 0 4px; }
 .headline strong { color: var(--accent); }
 .two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin: 8px 0 16px; }
 tr.total td { font-weight: 600; }
+input.inline { width: 72px; padding: 2px 6px; }
 .fine { font-size: 12px; color: var(--muted); margin: 12px 0 0; }
 .error { padding: 10px 12px; border: 1px solid var(--warn); border-radius: 6px; color: var(--warn); }

@@ -48,7 +48,8 @@ type Analysis struct {
 	Trend   []TrendPoint `json:"trend"`
 	Summary Summary      `json:"summary"`
 
-	Relative Relative `json:"relative"`
+	Relative Relative    `json:"relative"`
+	Jeonse   JeonseRatio `json:"jeonse"`
 }
 
 func analyse(history []molit.Trade, area int, now time.Time) Analysis {
