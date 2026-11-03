@@ -48,6 +48,33 @@ var migrations = []string{
 		umd_nm   TEXT NOT NULL,
 		added_at TEXT NOT NULL
 	)`,
+	`CREATE TABLE rent_fetches (
+		sgg_cd     TEXT NOT NULL,
+		ym         TEXT NOT NULL,
+		fetched_at TEXT NOT NULL,
+		PRIMARY KEY (sgg_cd, ym)
+	)`,
+	`CREATE TABLE rents (
+		sgg_cd        TEXT    NOT NULL,
+		ym            TEXT    NOT NULL,
+		apt_seq       TEXT    NOT NULL,
+		apt_nm        TEXT    NOT NULL,
+		umd_nm        TEXT    NOT NULL,
+		jibun         TEXT    NOT NULL,
+		area          REAL    NOT NULL,
+		floor         INTEGER NOT NULL,
+		deposit       INTEGER NOT NULL,
+		monthly       INTEGER NOT NULL,
+		date          TEXT    NOT NULL,
+		kind          TEXT    NOT NULL,
+		term          TEXT    NOT NULL,
+		pre_deposit   INTEGER NOT NULL,
+		pre_monthly   INTEGER NOT NULL,
+		renewal_right INTEGER NOT NULL,
+		build_year    INTEGER NOT NULL
+	)`,
+	`CREATE INDEX rents_by_month ON rents (sgg_cd, ym)`,
+	`CREATE INDEX rents_by_complex ON rents (apt_seq, date)`,
 }
 
 type Store struct {

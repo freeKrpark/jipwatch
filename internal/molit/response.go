@@ -16,11 +16,15 @@ type APIError struct {
 
 func (e *APIError) Error() string { return fmt.Sprintf("molit api error %s: %s", e.Code, e.Msg) }
 
-type response struct {
+type response[I any] struct {
 	ResultCode string `xml:"header>resultCode"`
 	ResultMsg  string `xml:"header>resultMsg"`
-	Items      []item `xml:"body>items>item"`
+	Items      []I    `xml:"body>items>item"`
 	TotalCount string `xml:"body>totalCount"`
+}
+
+type apiItem interface {
+	name() string
 }
 
 type gatewayError struct {
@@ -29,7 +33,11 @@ type gatewayError struct {
 	ReasonCode string `xml:"cmmMsgHeader>returnReasonCode"`
 }
 
-func Parse(body []byte) ([]Trade, int, error) {
+func Parse(body []byte) ([]Trade, int, error) { return parse(body, item.trade) }
+
+func ParseRents(body []byte) ([]Rent, int, error) { return parse(body, rentItem.rent) }
+
+func parse[I apiItem, T any](body []byte, convert func(I) (T, error)) ([]T, int, error) {
 	root, err := rootName(body)
 	if err != nil {
 		return nil, 0, err
@@ -37,7 +45,7 @@ func Parse(body []byte) ([]Trade, int, error) {
 
 	switch root {
 	case "response":
-		return parseResponse(body)
+		return parseResponse(body, convert)
 	case "OpenAPI_ServiceResponse":
 		var g gatewayError
 		if err := xml.Unmarshal(body, &g); err != nil {
@@ -49,8 +57,8 @@ func Parse(body []byte) ([]Trade, int, error) {
 	}
 }
 
-func parseResponse(body []byte) ([]Trade, int, error) {
-	var r response
+func parseResponse[I apiItem, T any](body []byte, convert func(I) (T, error)) ([]T, int, error) {
+	var r response[I]
 	if err := xml.Unmarshal(body, &r); err != nil {
 		return nil, 0, fmt.Errorf("molit: decode response: %w", err)
 	}
@@ -61,15 +69,15 @@ func parseResponse(body []byte) ([]Trade, int, error) {
 	if err != nil {
 		return nil, 0, fmt.Errorf("molit: bad totalCount %q", r.TotalCount)
 	}
-	trades := make([]Trade, 0, len(r.Items))
+	out := make([]T, 0, len(r.Items))
 	for i, it := range r.Items {
-		t, err := it.trade()
+		t, err := convert(it)
 		if err != nil {
-			return nil, 0, fmt.Errorf("molit: row %d (%s): %w", i+1, clean(it.AptNm), err)
+			return nil, 0, fmt.Errorf("molit: row %d (%s): %w", i+1, it.name(), err)
 		}
-		trades = append(trades, t)
+		out = append(out, t)
 	}
-	return trades, total, nil
+	return out, total, nil
 }
 
 func rootName(body []byte) (string, error) {

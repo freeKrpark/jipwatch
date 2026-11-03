@@ -45,6 +45,8 @@ type item struct {
 	BuildYear  string `xml:"buildYear"`
 }
 
+func (i item) name() string { return clean(i.AptNm) }
+
 type parser struct {
 	err error
 }
@@ -60,7 +62,7 @@ func (i item) trade() (Trade, error) {
 		Jibun:        clean(i.Jibun),
 		Area:         p.float("excluUseAr", i.ExcluUseAr),
 		Floor:        p.int("floor", i.Floor),
-		Price:        p.int("dealAmount", strings.ReplaceAll(i.DealAmount, ",", "")),
+		Price:        p.amount("dealAmount", i.DealAmount),
 		Date:         p.date(i.DealYear, i.DealMonth, i.DealDay),
 		Direct:       clean(i.DealingGbn) == "직거래",
 		Canceled:     clean(i.CdealType) == "O",

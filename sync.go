@@ -68,6 +68,8 @@ type SyncResult struct {
 	Added         int    `json:"added"`
 	NewlyCanceled int    `json:"newlyCanceled"`
 	Error         string `json:"error"`
+	RentMonths    int    `json:"rentMonths"`
+	RentError     string `json:"rentError"`
 }
 
 type SyncProgress struct {

@@ -93,6 +93,18 @@ func (a *App) fetch(c *molit.Client, sgg, ym string) (store.Change, error) {
 	return a.store.ReplaceMonth(a.ctx, sgg, ym, fresh, time.Now().In(kst))
 }
 
+func (a *App) fetchRents(c *molit.Client, sgg, ym string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	ctx, cancel := context.WithTimeout(a.ctx, time.Minute)
+	defer cancel()
+	fresh, err := c.Rents(ctx, sgg, ym)
+	if err != nil {
+		return err
+	}
+	return a.store.ReplaceRentMonth(a.ctx, sgg, ym, fresh, time.Now().In(kst))
+}
+
 // --- one month --------------------------------------------------------------
 
 // DefaultMonth is last month in Korea, "200601" layout: the latest month
@@ -204,10 +216,11 @@ func (a *App) ComplexHistory(sgg, aptSeq string) ([]molit.Trade, error) {
 }
 
 // SyncWatched fetches, for every district with a watched complex, each month
-// since historyFrom that was never fetched and the last few months again.
-// It sends a "sync" event with SyncProgress before each month. It stops at
-// the first failure; the months fetched so far stay saved, and the next sync
-// picks up the rest.
+// since historyFrom that was never fetched and the last few months again:
+// sales first, then 전월세. It sends a "sync" event with SyncProgress before
+// each month. Each kind stops at its first failure; the months fetched so far
+// stay saved, and the next sync picks up the rest. A failure in rents, such
+// as the rent API not yet applied for, leaves sales alone.
 func (a *App) SyncWatched() (SyncResult, error) {
 	if !a.syncing.CompareAndSwap(false, true) {
 		return SyncResult{}, errors.New("이미 받는 중이에요")
@@ -218,8 +231,11 @@ func (a *App) SyncWatched() (SyncResult, error) {
 	if err != nil {
 		return SyncResult{}, err
 	}
-	type job struct{ sgg, ym string }
-	var jobs []job
+	type job struct {
+		sgg, ym string
+		rent    bool
+	}
+	var jobs, rentJobs []job
 	seen := map[string]bool{}
 	now := time.Now().In(kst)
 	for _, w := range list {
@@ -232,9 +248,17 @@ func (a *App) SyncWatched() (SyncResult, error) {
 			return SyncResult{}, err
 		}
 		for _, ym := range syncPlan(fetched, now) {
-			jobs = append(jobs, job{w.SggCd, ym})
+			jobs = append(jobs, job{w.SggCd, ym, false})
+		}
+		rentFetched, err := a.store.RentFetched(a.ctx, w.SggCd)
+		if err != nil {
+			return SyncResult{}, err
+		}
+		for _, ym := range syncPlan(rentFetched, now) {
+			rentJobs = append(rentJobs, job{w.SggCd, ym, true})
 		}
 	}
+	jobs = append(jobs, rentJobs...)
 	if len(jobs) == 0 {
 		return SyncResult{}, nil
 	}
@@ -244,21 +268,50 @@ func (a *App) SyncWatched() (SyncResult, error) {
 	}
 
 	var r SyncResult
+	done := 0
 	for i, j := range jobs {
-		a.emit("sync", SyncProgress{Done: i, Total: len(jobs), Label: districtName(j.sgg) + " " + ymLabel(j.ym)})
+		label := districtName(j.sgg) + " " + ymLabel(j.ym)
+		if j.rent {
+			if r.Error != "" {
+				break // rents would fail the same way
+			}
+			a.emit("sync", SyncProgress{Done: i, Total: len(jobs), Label: "전월세 · " + label})
+			if err := a.fetchRents(c, j.sgg, j.ym); err != nil {
+				r.RentError = rentError(label, err)
+				break
+			}
+			r.RentMonths++
+			done++
+			continue
+		}
+		if r.Error != "" {
+			continue
+		}
+		a.emit("sync", SyncProgress{Done: i, Total: len(jobs), Label: label})
 		ch, err := a.fetch(c, j.sgg, j.ym)
 		if err != nil {
-			r.Error = fmt.Sprintf("%s %s에서 멈췄어요: %v", districtName(j.sgg), ymLabel(j.ym), err)
-			break
+			r.Error = fmt.Sprintf("%s에서 멈췄어요: %v", label, err)
+			continue
 		}
 		r.Months++
+		done++
 		if !ch.First {
 			r.Added += len(ch.Added)
 			r.NewlyCanceled += len(ch.Canceled)
 		}
 	}
-	a.emit("sync", SyncProgress{Done: r.Months, Total: len(jobs)})
+	a.emit("sync", SyncProgress{Done: done, Total: len(jobs)})
 	return r, nil
+}
+
+// rentError says why rents stopped, pointing at the 활용신청 when the key is
+// not registered for the rent API.
+func rentError(label string, err error) string {
+	var apiErr *molit.APIError
+	if errors.As(err, &apiErr) && apiErr.Code == "30" {
+		return "전월세는 못 받았어요. 공공데이터포털에서 '아파트 전월세 실거래가 자료' 활용신청이 반영됐는지 확인해 주세요"
+	}
+	return fmt.Sprintf("전월세는 %s에서 멈췄어요: %v", label, err)
 }
 
 func (a *App) Coverage(sgg string) (Coverage, error) {

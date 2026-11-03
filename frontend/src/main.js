@@ -414,17 +414,14 @@ function sync() {
     if (!syncing) {
         syncing = SyncWatched()
             .then((r) => {
-                if (r.error) {
-                    syncBar.className = 'failed';
-                    syncBar.textContent = r.error;
-                } else if (r.months === 0) {
-                    syncBar.hidden = true;
-                } else {
-                    syncBar.className = 'done';
-                    syncBar.textContent = r.added || r.newlyCanceled
-                        ? `${r.months}개월 받음 · 새로 신고된 거래 ${r.added}건 · 새로 해제된 거래 ${r.newlyCanceled}건`
-                        : `${r.months}개월 받음 · 달라진 거래 없음`;
-                }
+                const sales = r.months > 0 && (r.added || r.newlyCanceled
+                    ? `${r.months}개월 받음 · 새로 신고된 거래 ${r.added}건 · 새로 해제된 거래 ${r.newlyCanceled}건`
+                    : `${r.months}개월 받음 · 달라진 거래 없음`);
+                const rents = r.rentMonths > 0 && `전월세 ${r.rentMonths}개월 받음`;
+                const parts = [r.error, sales, rents, r.rentError].filter(Boolean);
+                syncBar.hidden = parts.length === 0;
+                syncBar.className = r.error || r.rentError ? 'failed' : 'done';
+                syncBar.textContent = parts.join(' · ');
                 return r;
             })
             .catch((err) => {

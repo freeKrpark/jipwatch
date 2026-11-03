@@ -481,6 +481,8 @@ export namespace main {
 	    added: number;
 	    newlyCanceled: number;
 	    error: string;
+	    rentMonths: number;
+	    rentError: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new SyncResult(source);
@@ -492,6 +494,8 @@ export namespace main {
 	        this.added = source["added"];
 	        this.newlyCanceled = source["newlyCanceled"];
 	        this.error = source["error"];
+	        this.rentMonths = source["rentMonths"];
+	        this.rentError = source["rentError"];
 	    }
 	}
 	
