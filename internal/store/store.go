@@ -75,6 +75,18 @@ var migrations = []string{
 	)`,
 	`CREATE INDEX rents_by_month ON rents (sgg_cd, ym)`,
 	`CREATE INDEX rents_by_complex ON rents (apt_seq, date)`,
+	// ECOS fetch tracking: one row per kind ("m2" or "rate").
+	`CREATE TABLE ecos_fetches (
+		kind       TEXT PRIMARY KEY,
+		fetched_at TEXT NOT NULL
+	)`,
+	// Monthly macro data from ECOS (M2 in 조원, base rate in %).
+	`CREATE TABLE ecos_data (
+		kind  TEXT NOT NULL,
+		ym    TEXT NOT NULL,
+		value REAL NOT NULL,
+		PRIMARY KEY (kind, ym)
+	)`,
 }
 
 type Store struct {

@@ -1,7 +1,7 @@
 import Chart from 'chart.js/auto';
 import {
     BuyRent, BuyRentStart, ComplexAnalysis, ComplexTrades, Coverage, DefaultMonth, Districts, HasAPIKey,
-    IsWatched, Month, RefreshMonth, SaveAPIKey, SyncWatched, Unwatch, Watch, Watchlist,
+    HasEcosKey, IsWatched, Month, RefreshMonth, SaveAPIKey, SaveEcosKey, SyncWatched, Unwatch, Watch, Watchlist,
 } from '../wailsjs/go/main/App';
 import {EventsOn} from '../wailsjs/runtime/runtime';
 
@@ -242,6 +242,12 @@ function summaryCards(a) {
         card('전세 대비',
             j.current ? `전세가율 ${j.current.toFixed(0)}%` : '—',
             j.current && j.enough ? `평소 ${j.usual.toFixed(0)}% · ${jv.text}` : jv.text, jv.tone),
+        a.m2.points.length > 0 && (() => {
+            const mv = m2Verdict(a.m2);
+            return card('M2 보정',
+                a.m2.current ? eok(Math.round(a.m2.current)) : '—',
+                a.m2.enough ? `평소 ${eok(Math.round(a.m2.usual))} · ${mv.text}` : mv.text, mv.tone);
+        })(),
     );
 }
 
@@ -398,6 +404,100 @@ function jeonseSection(j, canvas) {
         yieldLine(j));
 }
 
+// --- M2 보정 실질가격 ---------------------------------------------------------
+
+function m2Verdict(m) {
+    if (!m.enough) return {text: 'M2 비교 기간이 짧아요', tone: ''};
+    if (m.z >= 1) return {text: '통화량 감안해도 비싼 편', tone: 'hot'};
+    if (m.z <= -1) return {text: '통화량 감안하면 싼 편', tone: 'cool'};
+    return {text: '통화량 대비 평소 수준', tone: ''};
+}
+
+function m2Section(m2, canvas) {
+    if (!m2.points.length) return null;
+    const v = m2Verdict(m2);
+    return h('div', {},
+        h('h2', {}, 'M2 보정 실질가격'),
+        h('p', {class: 'sub'},
+            '통화량(M2)이 늘면 돈의 가치가 줄어서 집값이 따라 오르는 게 자연스러워요. ' +
+            '여기서는 M2로 나눠서, 돈의 가치가 변하지 않았다면 얼마인지 봐요. ' +
+            '기준금리는 참고용으로 겹쳐 그렸어요.'),
+        h('p', {},
+            `현재 보정가 ${m2.current ? eok(Math.round(m2.current)) : '—'}`,
+            m2.enough ? ` · 평소 ${eok(Math.round(m2.usual))} → ` : ' · ',
+            h('strong', {}, v.text)),
+        h('div', {class: 'chart small-chart'}, canvas));
+}
+
+function drawM2Chart(canvas, m2) {
+    const css = getComputedStyle(document.documentElement);
+    const color = (name) => css.getPropertyValue(name).trim();
+    const years = yearTicks(m2.points.map((p) => monthMs(p.month)));
+    const flat = (y) => [{x: years[0], y}, {x: years[years.length - 1], y}];
+
+    const hasRate = m2.points.some((p) => p.rate > 0);
+    const datasets = [
+        {label: 'M2 보정가', order: 0, yAxisID: 'y',
+            borderColor: color('--fg'), borderWidth: 2, pointRadius: 0, tension: 0.3,
+            data: m2.points.map((p) => ({x: monthMs(p.month), y: p.adjusted / 10000, point: p}))},
+        {label: `평소 ${eok(Math.round(m2.usual))}`, order: 1, yAxisID: 'y',
+            data: flat(m2.usual / 10000), borderColor: color('--accent'),
+            borderWidth: 1, borderDash: [6, 4], pointRadius: 0},
+        {label: '평소 범위', order: 2, yAxisID: 'y',
+            data: flat((m2.usual + m2.spread) / 10000), borderColor: 'transparent',
+            pointRadius: 0, backgroundColor: color('--line'), fill: '+1'},
+        {label: '', order: 3, yAxisID: 'y',
+            data: flat((m2.usual - m2.spread) / 10000), borderColor: 'transparent', pointRadius: 0},
+    ];
+    if (hasRate) {
+        datasets.push({
+            label: '기준금리', order: 0, yAxisID: 'y1',
+            borderColor: color('--warn'), borderWidth: 1.5, borderDash: [4, 3],
+            pointRadius: 0, tension: 0.3,
+            data: m2.points.filter((p) => p.rate > 0).map((p) => ({x: monthMs(p.month), y: p.rate})),
+        });
+    }
+
+    charts.push(new Chart(canvas, {
+        type: 'line',
+        data: {datasets},
+        options: {
+            animation: false,
+            maintainAspectRatio: false,
+            scales: {
+                x: yearAxis(years, color),
+                y: {
+                    position: 'left',
+                    ticks: {color: color('--muted'), callback: (v) => `${v}억`},
+                    grid: {color: color('--line')},
+                },
+                ...(hasRate ? {
+                    y1: {
+                        position: 'right',
+                        ticks: {color: color('--warn'), callback: (v) => `${v}%`},
+                        grid: {drawOnChartArea: false},
+                    },
+                } : {}),
+            },
+            plugins: {
+                legend: {labels: {color: color('--muted'), boxHeight: 2, filter: (item) => item.text !== ''}},
+                tooltip: {
+                    filter: (item) => item.datasetIndex <= 1,
+                    callbacks: {
+                        label: (ctx) => {
+                            if (ctx.datasetIndex === 0) {
+                                const p = ctx.raw.point;
+                                return `${p.month} 보정가 ${eok(Math.round(p.adjusted))} (명목 ${eok(p.nominal)} · M2 ${p.m2.toFixed(0)}조)`;
+                            }
+                            return ctx.dataset.label;
+                        },
+                    },
+                },
+            },
+        },
+    }));
+}
+
 // --- buy or rent ---------------------------------------------------------------
 
 const man = (v) => `${Math.round(v).toLocaleString()}만`;
@@ -543,9 +643,9 @@ function sync() {
                     ? `${r.months}개월 받음 · 새로 신고된 거래 ${r.added}건 · 새로 해제된 거래 ${r.newlyCanceled}건`
                     : `${r.months}개월 받음 · 달라진 거래 없음`);
                 const rents = r.rentMonths > 0 && `전월세 ${r.rentMonths}개월 받음`;
-                const parts = [r.error, sales, rents, r.rentError].filter(Boolean);
+                const parts = [r.error, sales, rents, r.rentError, r.ecosError].filter(Boolean);
                 syncBar.hidden = parts.length === 0;
-                syncBar.className = r.error || r.rentError ? 'failed' : 'done';
+                syncBar.className = r.error || r.rentError || r.ecosError ? 'failed' : 'done';
                 syncBar.textContent = parts.join(' · ');
                 return r;
             })
@@ -598,14 +698,44 @@ function showSetup(canCancel) {
         },
     }, h('label', {}, 'API 키', input), save);
 
+    // ECOS key section (optional)
+    const ecosInput = h('input', {class: 'wide', type: 'password', autocomplete: 'off', placeholder: 'ECOS 인증키'});
+    const ecosMessage = h('p');
+    const ecosSave = h('button', {type: 'submit'}, '확인하고 저장');
+    const ecosForm = h('form', {
+        onsubmit: async (e) => {
+            e.preventDefault();
+            ecosMessage.replaceChildren();
+            try {
+                await busy(ecosSave, '확인하는 중…', () => SaveEcosKey(ecosInput.value));
+                ecosMessage.replaceChildren(h('span', {class: 'status'}, 'ECOS 키가 저장됐어요.'));
+            } catch (err) {
+                ecosMessage.replaceChildren(h('span', {class: 'error'}, errorText(err)));
+            }
+        },
+    }, h('label', {}, 'ECOS API 키', ecosInput), ecosSave);
+    const ecosSection = h('div', {},
+        h('h2', {}, 'ECOS API 키 (선택)'),
+        h('p', {class: 'sub'},
+            '한국은행 경제통계시스템(ecos.bok.or.kr)의 인증키를 넣으면 M2 통화량과 기준금리로 실질 가격을 볼 수 있어요. 없어도 앱은 쓸 수 있어요.'),
+        ecosForm,
+        ecosMessage);
+    HasEcosKey().then((has) => {
+        if (has) ecosSection.replaceChildren(
+            h('h2', {}, 'ECOS API 키'),
+            h('p', {class: 'status'}, 'ECOS 키가 설정돼 있어요.'),
+            ecosForm, ecosMessage);
+    }).catch(() => {});
+
     show('setup',
         h('h1', {}, 'API 키 설정'),
         h('p', {class: 'sub'},
             '공공데이터포털 마이페이지의 ',
-            h('strong', {}, '“국토교통부_아파트 매매 실거래가 상세 자료”'),
+            h('strong', {}, '”국토교통부_아파트 매매 실거래가 상세 자료”'),
             ' 인증키를 넣어 주세요. Encoding, Decoding 어느 쪽이든 돼요. 이 PC에만 저장돼요.'),
         form,
         message,
+        ecosSection,
         canCancel && h('button', {class: 'link', onclick: showHome}, '취소'),
     );
     input.focus();
@@ -662,6 +792,7 @@ async function showHistory(c, area = 0) {
         const canvas = h('canvas');
         const premiumCanvas = h('canvas');
         const ratioCanvas = h('canvas');
+        const m2Canvas = h('canvas');
         // replaceChildren does not skip false like h does, so build in h.
         body.replaceChildren(h('div', {},
             h('p', {class: 'sub'}, `${gu(c.sggCd)} ${c.umdNm}`),
@@ -689,6 +820,7 @@ async function showHistory(c, area = 0) {
                         '구 평균엔 신축과 구축이 섞여 있어서, 숫자 자체보다 이 단지의 평소 수준과 비교해서 보세요.'),
                     h('div', {class: 'chart small-chart'}, premiumCanvas)),
                     jeonseSection(a.jeonse, ratioCanvas),
+                m2Section(a.m2, m2Canvas),
                 buyRentSection(c, a.area),
                 h('h2', {}, '거래 내역'),
                 tradeTable(a.trades.slice().reverse())),
@@ -697,6 +829,7 @@ async function showHistory(c, area = 0) {
         if (a.trades.length) drawChart(canvas, a);
         if (a.relative.points.length) drawPremium(premiumCanvas, a.relative);
         if (a.jeonse.points.length) drawRatio(ratioCanvas, a.jeonse);
+        if (a.m2.points.length) drawM2Chart(m2Canvas, a.m2);
     } catch (err) {
         body.replaceChildren(h('p', {class: 'error'}, errorText(err)));
     }

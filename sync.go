@@ -70,6 +70,7 @@ type SyncResult struct {
 	Error         string `json:"error"`
 	RentMonths    int    `json:"rentMonths"`
 	RentError     string `json:"rentError"`
+	EcosError     string `json:"ecosError"`
 }
 
 type SyncProgress struct {

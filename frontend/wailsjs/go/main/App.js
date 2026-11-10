@@ -38,6 +38,10 @@ export function HasAPIKey() {
   return window['go']['main']['App']['HasAPIKey']();
 }
 
+export function HasEcosKey() {
+  return window['go']['main']['App']['HasEcosKey']();
+}
+
 export function IsWatched(arg1) {
   return window['go']['main']['App']['IsWatched'](arg1);
 }
@@ -52,6 +56,10 @@ export function RefreshMonth(arg1, arg2) {
 
 export function SaveAPIKey(arg1) {
   return window['go']['main']['App']['SaveAPIKey'](arg1);
+}
+
+export function SaveEcosKey(arg1) {
+  return window['go']['main']['App']['SaveEcosKey'](arg1);
 }
 
 export function SyncWatched() {

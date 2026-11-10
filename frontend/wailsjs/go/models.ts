@@ -1,5 +1,65 @@
 export namespace main {
 	
+	export class M2Point {
+	    month: string;
+	    nominal: number;
+	    m2: number;
+	    adjusted: number;
+	    rate: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new M2Point(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.month = source["month"];
+	        this.nominal = source["nominal"];
+	        this.m2 = source["m2"];
+	        this.adjusted = source["adjusted"];
+	        this.rate = source["rate"];
+	    }
+	}
+	export class M2Analysis {
+	    points: M2Point[];
+	    usual: number;
+	    spread: number;
+	    current: number;
+	    z: number;
+	    enough: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new M2Analysis(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.points = this.convertValues(source["points"], M2Point);
+	        this.usual = source["usual"];
+	        this.spread = source["spread"];
+	        this.current = source["current"];
+	        this.z = source["z"];
+	        this.enough = source["enough"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class RatioPoint {
 	    month: string;
 	    ratio: number;
@@ -262,6 +322,7 @@ export namespace main {
 	    summary: Summary;
 	    relative: Relative;
 	    jeonse: JeonseRatio;
+	    m2: M2Analysis;
 	
 	    static createFrom(source: any = {}) {
 	        return new Analysis(source);
@@ -276,6 +337,7 @@ export namespace main {
 	        this.summary = this.convertValues(source["summary"], Summary);
 	        this.relative = this.convertValues(source["relative"], Relative);
 	        this.jeonse = this.convertValues(source["jeonse"], JeonseRatio);
+	        this.m2 = this.convertValues(source["m2"], M2Analysis);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -505,6 +567,8 @@ export namespace main {
 	
 	
 	
+	
+	
 	export class MonthSummary {
 	    total: number;
 	    canceled: number;
@@ -561,6 +625,7 @@ export namespace main {
 	    error: string;
 	    rentMonths: number;
 	    rentError: string;
+	    ecosError: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new SyncResult(source);
@@ -574,6 +639,7 @@ export namespace main {
 	        this.error = source["error"];
 	        this.rentMonths = source["rentMonths"];
 	        this.rentError = source["rentError"];
+	        this.ecosError = source["ecosError"];
 	    }
 	}
 	

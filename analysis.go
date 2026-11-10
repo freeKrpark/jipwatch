@@ -50,6 +50,7 @@ type Analysis struct {
 
 	Relative Relative    `json:"relative"`
 	Jeonse   JeonseRatio `json:"jeonse"`
+	M2       M2Analysis  `json:"m2"`
 }
 
 func analyse(history []molit.Trade, area int, now time.Time) Analysis {

@@ -21,6 +21,8 @@ export function Districts():Promise<Array<main.District>>;
 
 export function HasAPIKey():Promise<boolean>;
 
+export function HasEcosKey():Promise<boolean>;
+
 export function IsWatched(arg1:string):Promise<boolean>;
 
 export function Month(arg1:string,arg2:string):Promise<main.MonthSummary>;
@@ -28,6 +30,8 @@ export function Month(arg1:string,arg2:string):Promise<main.MonthSummary>;
 export function RefreshMonth(arg1:string,arg2:string):Promise<main.MonthSummary>;
 
 export function SaveAPIKey(arg1:string):Promise<void>;
+
+export function SaveEcosKey(arg1:string):Promise<void>;
 
 export function SyncWatched():Promise<main.SyncResult>;
 

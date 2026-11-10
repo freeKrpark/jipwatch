@@ -9,15 +9,21 @@ import (
 	"sync/atomic"
 	"time"
 
+	"strings"
+
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"github.com/freekrpark/jipwatch/internal/ecos"
 	"github.com/freekrpark/jipwatch/internal/molit"
 	"github.com/freekrpark/jipwatch/internal/store"
 )
 
 // settingAPIKey is where the data.go.kr key is saved. The key never goes
 // back to the frontend; only Go code reads it.
-const settingAPIKey = "molit.api_key"
+const (
+	settingAPIKey  = "molit.api_key"
+	settingEcosKey = "ecos.api_key"
+)
 
 var kst = time.FixedZone("KST", 9*60*60)
 
@@ -227,6 +233,16 @@ func (a *App) SyncWatched() (SyncResult, error) {
 	}
 	defer a.syncing.Store(false)
 
+	var r SyncResult
+
+	// ECOS (global, once): fetch M2 and base rate before per-district jobs.
+	if ec := a.ecosClient(); ec != nil {
+		a.emit("sync", SyncProgress{Label: "M2·금리"})
+		if err := a.fetchEcos(ec); err != nil {
+			r.EcosError = fmt.Sprintf("ECOS: %v", err)
+		}
+	}
+
 	list, err := a.store.Watchlist(a.ctx)
 	if err != nil {
 		return SyncResult{}, err
@@ -260,14 +276,13 @@ func (a *App) SyncWatched() (SyncResult, error) {
 	}
 	jobs = append(jobs, rentJobs...)
 	if len(jobs) == 0 {
-		return SyncResult{}, nil
+		return r, nil
 	}
 	c, err := a.client()
 	if err != nil {
 		return SyncResult{}, err
 	}
 
-	var r SyncResult
 	done := 0
 	for i, j := range jobs {
 		label := districtName(j.sgg) + " " + ymLabel(j.ym)
@@ -340,7 +355,86 @@ func (a *App) ComplexAnalysis(sgg, aptSeq string, area int) (Analysis, error) {
 		return Analysis{}, err
 	}
 	an.Jeonse = jeonse(an, rents, now)
+
+	m2data, err := a.store.EcosData(a.ctx, "m2")
+	if err != nil {
+		return Analysis{}, err
+	}
+	rateData, err := a.store.EcosData(a.ctx, "rate")
+	if err != nil {
+		return Analysis{}, err
+	}
+	an.M2 = m2analysis(an.Trend, m2data, rateData)
 	return an, nil
+}
+
+// --- ECOS (한국은행 경제통계) -------------------------------------------
+
+// HasEcosKey reports whether an ECOS key has been saved.
+func (a *App) HasEcosKey() (bool, error) {
+	key, err := a.store.Setting(a.ctx, settingEcosKey)
+	return key != "", err
+}
+
+// SaveEcosKey validates key against the ECOS API and saves it.
+func (a *App) SaveEcosKey(key string) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return errors.New("ECOS API 키를 입력해 주세요")
+	}
+	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+	defer cancel()
+	if err := ecos.NewClient(key).Ping(ctx); err != nil {
+		var apiErr *ecos.APIError
+		if errors.As(err, &apiErr) {
+			return fmt.Errorf("ECOS 키 확인 실패: %s", apiErr.Message)
+		}
+		return fmt.Errorf("ECOS 키를 확인하지 못했어요: %w", err)
+	}
+	return a.store.SetSetting(a.ctx, settingEcosKey, key)
+}
+
+func (a *App) ecosClient() *ecos.Client {
+	key, err := a.store.Setting(a.ctx, settingEcosKey)
+	if err != nil || key == "" {
+		return nil
+	}
+	return ecos.NewClient(key)
+}
+
+func (a *App) fetchEcos(ec *ecos.Client) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+	defer cancel()
+	now := time.Now().In(kst)
+	endYM := now.Format("200601")
+
+	m2rows, err := ec.M2(ctx, historyFrom, endYM)
+	if err != nil {
+		return fmt.Errorf("M2: %w", err)
+	}
+	var m2points []store.EcosPoint
+	for _, r := range m2rows {
+		if v, ok := ecos.ParseValue(r.Value); ok {
+			m2points = append(m2points, store.EcosPoint{YM: r.Time, Value: v})
+		}
+	}
+	if err := a.store.ReplaceEcos(a.ctx, "m2", m2points, now); err != nil {
+		return err
+	}
+
+	rateRows, err := ec.BaseRate(ctx, historyFrom, endYM)
+	if err != nil {
+		return fmt.Errorf("기준금리: %w", err)
+	}
+	var ratePoints []store.EcosPoint
+	for _, r := range rateRows {
+		if v, ok := ecos.ParseValue(r.Value); ok {
+			ratePoints = append(ratePoints, store.EcosPoint{YM: r.Time, Value: v})
+		}
+	}
+	return a.store.ReplaceEcos(a.ctx, "rate", ratePoints, now)
 }
 
 type BuyRentStart struct {
